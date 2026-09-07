@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.djui.icloud-exporter</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/ABSOLUTE/PATH/TO/icloud-exporter/dist/icloud-exporter/icloud-exporter</string>
+        <string>export</string>
+        <string>--output</string>
+        <string>/ABSOLUTE/PATH/TO/iCloud Export</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>StandardOutPath</key>
+    <string>/ABSOLUTE/PATH/TO/Logs/icloud-exporter.log</string>
+    <key>StandardErrorPath</key>
+    <string>/ABSOLUTE/PATH/TO/Logs/icloud-exporter.error.log</string>
+</dict>
+</plist>

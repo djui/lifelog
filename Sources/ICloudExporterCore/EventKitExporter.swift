@@ -1,0 +1,250 @@
+import Foundation
+@preconcurrency import EventKit
+
+/// Reads the event store without saving, removing, or modifying its contents.
+@MainActor
+public final class EventKitExporter {
+    private let store = EKEventStore()
+
+    public init() {}
+
+    public func reminders(completedSince: Date) async throws -> SourceResult<ReminderRecord> {
+        guard completedSince.timeIntervalSinceReferenceDate.isFinite else {
+            throw ExportError.message("The completed-reminder cutoff must be a valid date.")
+        }
+        try await requireAccess(to: .reminder)
+        let incomplete = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil, ending: nil, calendars: nil
+        )
+        let recentlyCompleted = store.predicateForCompletedReminders(
+            withCompletionDateStarting: completedSince, ending: nil, calendars: nil
+        )
+        let active = try await fetchReminders(matching: incomplete)
+        let completed = try await fetchReminders(matching: recentlyCompleted)
+
+        // A reminder can change completion state between the two queries.
+        var records: [String: ReminderRecord] = [:]
+        for reminder in active + completed {
+            let record = ReminderRecord(
+                id: reminder.calendarItemIdentifier,
+                title: reminder.title ?? "",
+                list: reminder.calendar?.title ?? "",
+                notes: reminder.notes,
+                isCompleted: reminder.isCompleted,
+                completionDate: reminder.completionDate,
+                due: try EventKitDates.reminderDue(reminder.dueDateComponents),
+                priority: Int(reminder.priority),
+                url: reminder.url?.absoluteString
+            )
+            records[record.id] = record
+        }
+        return SourceResult(records: records.values.sorted { $0.id < $1.id })
+    }
+
+    public func events(from: Date, to: Date) async throws -> SourceResult<CalendarRecord> {
+        try EventKitDates.validateEventRange(from: from, to: to)
+        try await requireAccess(to: .event)
+        try Task.checkCancellation()
+        let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
+        let defaultTimeZone = TimeZone.current
+        let records = try store.events(matching: predicate).map { event in
+            guard let start = event.startDate, let end = event.endDate,
+                  start.timeIntervalSinceReferenceDate.isFinite,
+                  end.timeIntervalSinceReferenceDate.isFinite, end >= start else {
+                throw ExportError.message("Calendar returned an event with invalid dates; the export was not replaced.")
+            }
+            // EventKit returns floating/all-day dates in the system's default zone.
+            // Civil dates preserve the actual day even when JSON encodes the instants in UTC.
+            let zone = event.isAllDay ? defaultTimeZone : event.timeZone
+            let occurrence = event.hasRecurrenceRules || event.isDetached ? (event.occurrenceDate ?? start) : nil
+            return CalendarRecord(
+                id: EventKitDates.occurrenceIdentifier(
+                    itemID: event.calendarItemIdentifier,
+                    occurrence: occurrence,
+                    allDayTimeZone: event.isAllDay ? defaultTimeZone : nil
+                ),
+                title: event.title ?? "",
+                calendar: event.calendar?.title ?? "",
+                start: start,
+                end: end,
+                isAllDay: event.isAllDay,
+                timeZone: zone?.identifier,
+                location: event.location,
+                notes: event.notes,
+                url: event.url?.absoluteString,
+                startDate: event.isAllDay ? EventKitDates.civilDate(start, in: defaultTimeZone) : nil,
+                endDate: event.isAllDay ? EventKitDates.civilDate(end, in: defaultTimeZone) : nil
+            )
+        }
+        try Task.checkCancellation()
+        return SourceResult(records: records.sorted {
+            $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start
+        })
+    }
+
+    private func requireAccess(to entity: EKEntityType) async throws {
+        try Task.checkCancellation()
+        let source = entity == .event ? "Calendars" : "Reminders"
+        switch EKEventStore.authorizationStatus(for: entity) {
+        case .fullAccess:
+            return
+        case .restricted:
+            throw ExportError.message("\(source) access is restricted by macOS policy. Ask the Mac's administrator to allow iCloud Exporter to access \(source), then run it again.")
+        case .denied:
+            throw accessDenied(source)
+        case .notDetermined, .writeOnly:
+            break
+        @unknown default:
+            throw accessDenied(source)
+        }
+        let granted: Bool
+        do {
+            if entity == .event {
+                granted = try await store.requestFullAccessToEvents()
+            } else {
+                granted = try await store.requestFullAccessToReminders()
+            }
+        } catch {
+            throw ExportError.message("Could not request \(source) access: \(error.localizedDescription). \(accessInstructions(source))")
+        }
+        try Task.checkCancellation()
+        guard granted else { throw accessDenied(source) }
+    }
+
+    private func accessDenied(_ source: String) -> ExportError {
+        .message("\(source) full access was denied. \(accessInstructions(source))")
+    }
+
+    private func accessInstructions(_ source: String) -> String {
+        "Open System Settings → Privacy & Security → \(source), enable full access for iCloud Exporter or the app that launched it (such as Terminal), then run the exporter again."
+    }
+
+    private func fetchReminders(matching predicate: NSPredicate) async throws -> [EKReminder] {
+        try await EventKitCallback<[EKReminder]>.wait(timeoutNanoseconds: 60_000_000_000) { finish in
+            let identifier = self.store.fetchReminders(matching: predicate) { reminders in
+                if let reminders {
+                    finish(.success(reminders))
+                } else {
+                    finish(.failure(ExportError.message("Reminders returned no fetch result. Check Reminders access in System Settings → Privacy & Security and run the exporter again.")))
+                }
+            }
+            return { self.store.cancelFetchRequest(identifier) }
+        }
+    }
+}
+
+/// Date mapping is independent of EventKit so it can be checked without permission prompts.
+enum EventKitDates {
+    static func validateEventRange(from: Date, to: Date) throws {
+        // EventKit silently truncates windows longer than four years. A fixed 1,460-day
+        // cap is safe across leap years and agrees with the command-line option limits.
+        let duration = to.timeIntervalSince(from)
+        guard from.timeIntervalSinceReferenceDate.isFinite,
+              to.timeIntervalSinceReferenceDate.isFinite,
+              duration > 0, duration <= 1_460 * 86_400 else {
+            throw ExportError.message("The calendar window must have increasing dates and span no more than 1,460 days (four years).")
+        }
+    }
+
+    static func civilDate(_ date: Date, in timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+    }
+
+    static func occurrenceIdentifier(itemID: String, occurrence: Date?, allDayTimeZone: TimeZone?) -> String {
+        guard let occurrence else { return itemID }
+        let suffix: String
+        if let zone = allDayTimeZone {
+            suffix = civilDate(occurrence, in: zone)
+        } else {
+            suffix = ISO8601DateFormatter().string(from: occurrence)
+        }
+        return "\(itemID)#\(suffix)"
+    }
+
+    static func reminderDue(_ components: DateComponents?) throws -> String? {
+        guard let components else { return nil }
+        guard let year = components.year, let month = components.month, let day = components.day,
+              (1...9_999).contains(year), (1...12).contains(month), (1...31).contains(day) else {
+            throw ExportError.message("A reminder has incomplete due-date components; the export was not replaced.")
+        }
+        let hasTime = components.hour != nil || components.minute != nil || components.second != nil
+        let hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        let second = components.second ?? 0
+        guard (0...23).contains(hour), (0...59).contains(minute), (0...59).contains(second) else {
+            throw ExportError.message("A reminder has invalid due-time components; the export was not replaced.")
+        }
+        // Validate civil components in UTC so floating dates are not shifted by this Mac's zone.
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = TimeZone(secondsFromGMT: 0)!
+        let dateParts = DateComponents(year: year, month: month, day: day, hour: hour, minute: minute, second: second)
+        guard let validationDate = gregorian.date(from: dateParts) else {
+            throw ExportError.message("A reminder has an invalid due date; the export was not replaced.")
+        }
+        let validated = gregorian.dateComponents([.year, .month, .day], from: validationDate)
+        guard validated.year == year, validated.month == month, validated.day == day else {
+            throw ExportError.message("A reminder has an invalid due date; the export was not replaced.")
+        }
+        let date = String(format: "%04d-%02d-%02d", year, month, day)
+        guard hasTime else { return date }
+        let local = date + String(format: "T%02d:%02d:%02d", hour, minute, second)
+        guard let timeZone = components.timeZone else { return local }
+        gregorian.timeZone = timeZone
+        guard let instant = gregorian.date(from: dateParts) else {
+            throw ExportError.message("A reminder's due date cannot be represented in its time zone.")
+        }
+        let zoned = gregorian.dateComponents([.year, .month, .day, .hour, .minute, .second], from: instant)
+        guard zoned.year == year, zoned.month == month, zoned.day == day,
+              zoned.hour == hour, zoned.minute == minute, zoned.second == second else {
+            throw ExportError.message("A reminder's due time does not exist in its time zone, possibly because of a daylight-saving change.")
+        }
+        let offset = timeZone.secondsFromGMT(for: instant)
+        let sign = offset < 0 ? "-" : "+"
+        let absoluteOffset = abs(offset)
+        return local + String(format: "%@%02d:%02d", sign, absoluteOffset / 3_600, (absoluteOffset % 3_600) / 60)
+    }
+}
+
+/// A cancelled EventKit fetch never calls its completion handler. Resume our own
+/// continuation on cancellation/timeout, and ignore any late completion safely.
+@MainActor
+final class EventKitCallback<Value> {
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var cancelRequest: (() -> Void)?
+    private var deadline: Task<Void, Never>?
+
+    static func wait(
+        timeoutNanoseconds: UInt64,
+        start: (@escaping (Result<Value, Error>) -> Void) -> (() -> Void)
+    ) async throws -> Value {
+        let callback = EventKitCallback<Value>()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                callback.continuation = continuation
+                callback.deadline = Task { @MainActor in
+                    do { try await Task.sleep(nanoseconds: timeoutNanoseconds) } catch { return }
+                    callback.finish(.failure(ExportError.message("Reminders did not respond within 60 seconds. Open Reminders and try the export again.")), cancelling: true)
+                }
+                callback.cancelRequest = start { result in
+                    Task { @MainActor in callback.finish(result, cancelling: false) }
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in callback.finish(.failure(CancellationError()), cancelling: true) }
+        }
+    }
+
+    private func finish(_ result: Result<Value, Error>, cancelling: Bool) {
+        guard let continuation else { return }
+        self.continuation = nil
+        deadline?.cancel()
+        deadline = nil
+        if cancelling { cancelRequest?() }
+        cancelRequest = nil
+        continuation.resume(with: result)
+    }
+}

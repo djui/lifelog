@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>com.djui.icloud-exporter</string>
+    <key>CFBundleName</key><string>iCloud Exporter</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Export your calendar events into local Markdown files you choose.</string>
+    <key>NSRemindersFullAccessUsageDescription</key><string>Export your reminders into local Markdown files you choose.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Read Apple Notes to export notes into local Markdown files you choose.</string>
+</dict></plist>
