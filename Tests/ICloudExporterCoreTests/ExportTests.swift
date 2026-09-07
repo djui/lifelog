@@ -97,7 +97,7 @@ final class ExportTests: XCTestCase {
         XCTAssertFalse(try String(contentsOf: root.appendingPathComponent("_index.md")).contains("2 protected notes skipped."))
     }
 
-    func testInterruptedWriteRecoversAndRequiresOriginalSources() throws {
+    func testInterruptedWriteRecoversDuringLaterSource() throws {
         let root = try temporaryDirectory(), store = ExportStore(output: root)
         _ = try store.write([doc("Notes/a.md", "old")], sources: [.notes], now: now, demo: true, warnings: [:])
         let before = try manifest(at: root)
@@ -106,10 +106,23 @@ final class ExportTests: XCTestCase {
         after.files["Notes/b.md"] = ExportStore.Entry(source: "notes", digest: MarkdownWriter.digest(Data("added".utf8)))
         try journal(ExportStore.Pending(committed: before, before: before, after: after, sources: ["notes"]), at: root)
         try Data("new".utf8).write(to: root.appendingPathComponent("Notes/a.md"))
-        XCTAssertThrowsError(try store.write([], sources: [.reminders], now: now, demo: true, warnings: [:]))
+        _ = try store.write([doc("Reminders/current-reminders.md", source: .reminders)], sources: [.reminders], now: now, demo: true, warnings: [:])
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("Notes/a.md")), "new")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Reminders/current-reminders.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(ExportStore.pendingName).path))
         _ = try store.write([doc("Notes/a.md", "latest"), doc("Notes/b.md", "added")], sources: [.notes], now: now, demo: true, warnings: [:])
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("Notes/a.md")), "latest")
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(ExportStore.pendingName).path))
+    }
+
+    func testEachSourceWriteAppearsWithoutWaitingForOthers() throws {
+        let root = try temporaryDirectory(), store = ExportStore(output: root)
+        _ = try store.write([doc("Notes/a.md")], sources: [.notes], now: now, demo: true, warnings: [:])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Notes/a.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Reminders/current-reminders.md").path))
+        _ = try store.write([doc("Reminders/current-reminders.md", source: .reminders)], sources: [.reminders], now: now, demo: true, warnings: [:])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Notes/a.md").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("Reminders/current-reminders.md").path))
     }
 
     func testRecoveryAfterRepeatedInterruptionAndProtectsUserEdits() throws {

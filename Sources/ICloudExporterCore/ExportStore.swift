@@ -5,6 +5,18 @@ public struct ExportSummary {
     public var written: Int = 0
     public var unchanged: Int = 0
     public var removed: Int = 0
+
+    public init(written: Int = 0, unchanged: Int = 0, removed: Int = 0) {
+        self.written = written
+        self.unchanged = unchanged
+        self.removed = removed
+    }
+
+    public mutating func merge(_ other: ExportSummary) {
+        written += other.written
+        unchanged += other.unchanged
+        removed += other.removed
+    }
 }
 
 /// Only files recorded in the manifest may be replaced or removed.
@@ -57,7 +69,6 @@ public final class ExportStore {
             try validate(pending.committed, mode: mode)
             guard previous == pending.committed || previous == pending.after else { throw ExportError.message("Export manifest and recovery journal do not match.") }
             if previous != pending.after {
-                guard selected.isSuperset(of: pending.sources) else { throw ExportError.message("An interrupted export needs recovery. Run again including these sources: \(pending.sources.sorted().joined(separator: ",")).") }
                 for path in Set(pending.before.files.keys).union(pending.after.files.keys) {
                     let candidates = [pending.before.files[path], pending.after.files[path]].compactMap { $0 }
                     let url = try checked(path)

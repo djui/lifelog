@@ -19,40 +19,64 @@ struct ICloudExporter {
             let config = try Config(arguments: arguments)
             let now = Date()
             let window = config.window(now: now)
-            let selected = ExportSource.allCases.filter { config.sources.contains($0) }.map(\.rawValue).joined(separator: ", ")
-            ExportLog.info("starting \(config.demo ? "demo" : "live") export of \(selected) to \(config.output.path)")
-            var snapshot = ExportSnapshot()
-            if config.demo {
-                ExportLog.info("using synthetic demo data")
-                snapshot = Demo.snapshot(now: now)
-            } else {
-                let eventKit = EventKitExporter()
-                if config.sources.contains(.notes) {
-                    let result = try await NotesExporter.fetch()
-                    snapshot.notes = result.records; snapshot.warnings[.notes] = result.warnings
-                }
-                if config.sources.contains(.reminders) {
-                    let result = try await eventKit.reminders(completedSince: window.completedSince)
-                    snapshot.reminders = result.records; snapshot.warnings[.reminders] = result.warnings
-                }
-                if config.sources.contains(.calendar) {
-                    let result = try await eventKit.events(from: window.start, to: window.end)
-                    snapshot.events = result.records; snapshot.warnings[.calendar] = result.warnings
+            let selected = ExportSource.allCases.filter { config.sources.contains($0) }
+            ExportLog.info("starting \(config.demo ? "demo" : "live") export of \(selected.map(\.rawValue).joined(separator: ", ")) to \(config.output.path)")
+            let store = ExportStore(output: config.output)
+            var summary = ExportSummary()
+            var failures: [ExportSource: String] = [:]
+            let demo = config.demo ? Demo.snapshot(now: now) : nil
+            if demo != nil { ExportLog.info("using synthetic demo data") }
+            let eventKit = demo == nil ? EventKitExporter() : nil
+
+            // Reminders and Calendar finish quickly; Notes can take minutes.
+            for source in [ExportSource.reminders, .calendar, .notes] where config.sources.contains(source) {
+                do {
+                    var snapshot = demo ?? ExportSnapshot()
+                    if let eventKit {
+                        snapshot = try await read(source, window: window, eventKit: eventKit)
+                    }
+                    var one = config
+                    one.sources = [source]
+                    ExportLog.info("rendering \(source.rawValue)")
+                    let documents = try MarkdownWriter.documents(snapshot: snapshot, config: one, now: now)
+                    summary.merge(try store.write(documents, sources: [source], now: now, demo: config.demo, warnings: snapshot.warnings))
+                    for warning in snapshot.warnings[source] ?? [] { stderr("Warning (\(source.rawValue)): \(warning)") }
+                } catch {
+                    failures[source] = error.localizedDescription
+                    stderr("Export failed (\(source.rawValue)): \(error.localizedDescription)")
                 }
             }
-            // Complete all source reads before changing the managed snapshot.
-            ExportLog.info("rendering markdown for \(config.sources.contains(.notes) ? snapshot.notes.count : 0) notes, \(config.sources.contains(.reminders) ? snapshot.reminders.count : 0) reminders, \(config.sources.contains(.calendar) ? snapshot.events.count : 0) events")
-            let documents = try MarkdownWriter.documents(snapshot: snapshot, config: config, now: now)
-            let summary = try ExportStore(output: config.output).write(documents, sources: config.sources, now: now, demo: config.demo, warnings: snapshot.warnings)
+
             print("Export complete: \(summary.written) files written, \(summary.unchanged) unchanged, \(summary.removed) removed.")
             print("Output: \(config.output.path)")
-            for source in ExportSource.allCases {
-                for warning in snapshot.warnings[source] ?? [] { stderr("Warning (\(source.rawValue)): \(warning)") }
+            if !failures.isEmpty {
+                let names = failures.keys.map(\.rawValue).sorted().joined(separator: ", ")
+                stderr("Sources that did not export: \(names)")
+                exit(1)
             }
         } catch {
             stderr("Export failed: \(error.localizedDescription)")
             exit(1)
         }
+    }
+
+    static func read(_ source: ExportSource, window: (start: Date, end: Date, completedSince: Date), eventKit: EventKitExporter) async throws -> ExportSnapshot {
+        var snapshot = ExportSnapshot()
+        switch source {
+        case .notes:
+            let result = try await NotesExporter.fetch()
+            snapshot.notes = result.records
+            snapshot.warnings[.notes] = result.warnings
+        case .reminders:
+            let result = try await eventKit.reminders(completedSince: window.completedSince)
+            snapshot.reminders = result.records
+            snapshot.warnings[.reminders] = result.warnings
+        case .calendar:
+            let result = try await eventKit.events(from: window.start, to: window.end)
+            snapshot.events = result.records
+            snapshot.warnings[.calendar] = result.warnings
+        }
+        return snapshot
     }
 
     static func stderr(_ message: String) { FileHandle.standardError.write(Data((message + "\n").utf8)) }
