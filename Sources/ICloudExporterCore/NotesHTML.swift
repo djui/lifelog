@@ -3,11 +3,48 @@ import Foundation
 /// A local HTML-to-Markdown converter. It never loads images, styles, or links.
 public enum NotesHTML {
     public static func markdown(from html: String) -> String {
-        let root = Parser.parse(html)
+        let root = Parser.parse(omitEmbeddedMedia(html))
         return render(root).replacingOccurrences(of: "\n[ \t]+\n", with: "\n\n",
                                                 options: .regularExpression)
             .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Drop inlined media so huge `data:` URIs never reach the parser or Markdown files.
+    static func omitEmbeddedMedia(_ html: String) -> String {
+        var result = replace(imgTag, in: html) { tag in
+            let alt = imageAlt(tag).flatMap { $0.isEmpty ? nil : $0 } ?? "Image"
+            return "<img alt=\"\(alt.replacingOccurrences(of: "\"", with: ""))\">"
+        }
+        result = replace(objectBlock, in: result) { _ in "<object></object>" }
+        result = replace(objectOrEmbedOpen, in: result) { _ in "<object></object>" }
+        result = replace(dataAttribute, in: result) { _ in "" }
+        return result
+    }
+
+    private static let imgTag = try! NSRegularExpression(pattern: #"<img\b[^>]*>"#, options: [.caseInsensitive])
+    private static let objectBlock = try! NSRegularExpression(pattern: #"<(object|embed)\b[^>]*>[\s\S]*?</\1>"#, options: [.caseInsensitive])
+    private static let objectOrEmbedOpen = try! NSRegularExpression(pattern: #"<(?:embed\b[^>]*|object\s[^>]*)/?>"#, options: [.caseInsensitive])
+    private static let dataAttribute = try! NSRegularExpression(pattern: #"\s(?:src|href|data)\s*=\s*["']data:[^"']*["']"#, options: [.caseInsensitive])
+    private static let altAttribute = try! NSRegularExpression(pattern: #"\balt\s*=\s*(?:"([^"]*)"|'([^']*)')"#, options: [.caseInsensitive])
+
+    private static func replace(_ regex: NSRegularExpression, in html: String, with replacement: (String) -> String) -> String {
+        let source = html as NSString
+        let result = NSMutableString(string: html)
+        for match in regex.matches(in: html, range: NSRange(location: 0, length: source.length)).reversed() {
+            result.replaceCharacters(in: match.range, with: replacement(source.substring(with: match.range)))
+        }
+        return result as String
+    }
+
+    private static func imageAlt(_ tag: String) -> String? {
+        let source = tag as NSString
+        guard let match = altAttribute.firstMatch(in: tag, range: NSRange(location: 0, length: source.length)) else { return nil }
+        for index in 1..<match.numberOfRanges {
+            let range = match.range(at: index)
+            if range.location != NSNotFound, range.length > 0 { return source.substring(with: range) }
+        }
+        return nil
     }
 
     private final class Node {

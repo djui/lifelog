@@ -74,7 +74,7 @@ Choose any writable output directory. It can be a local folder or a folder synce
 
 ## Limitations
 
-- All password-protected Notes are skipped, even when currently unlocked. Attachments, drawings, scans, and embedded files are not exported.
+- All password-protected Notes are skipped, even when currently unlocked. Embedded images, drawings, scans, and attachments are replaced with placeholders so the export stays small.
 - Notes formatting is converted to Markdown on a best-effort basis; the result is a text snapshot, not a full Notes backup.
 - Calendar export covers the requested time windows rather than the entire calendar history.
 - Access depends on the macOS permissions and Apple accounts available to the user running the exporter. Scheduling does not bypass permission prompts. After rebuilding with a new bundle identifier, macOS treats the exporter as a different app and asks for Calendar, Reminders, and Notes access again.

@@ -46,6 +46,21 @@ final class NotesTests: XCTestCase {
         XCTAssertFalse(markdown.contains("alert"))
     }
 
+    func testEmbeddedDataImagesAreOmitted() {
+        let html = """
+        <p>Caption</p>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" alt="Photo">
+        <object data="data:application/octet-stream;base64,AAAA"></object>
+        """
+        let markdown = NotesHTML.markdown(from: html)
+        XCTAssertTrue(markdown.contains("Caption"))
+        XCTAssertTrue(markdown.contains("[Photo]"))
+        XCTAssertTrue(markdown.contains("[Attachment]"))
+        XCTAssertFalse(markdown.contains("data:image"))
+        XCTAssertFalse(markdown.contains("iVBORw0KGgo"))
+        XCTAssertFalse(markdown.contains("AAAA"))
+    }
+
     func testTableCheckboxAndCode() {
         let html = """
         <table><thead><tr><th>Name</th><th>Value</th></tr></thead>
@@ -112,7 +127,7 @@ final class NotesTests: XCTestCase {
             name: function() { return 'Example'; }, container: function() { return child; },
             creationDate: function() { return new Date('2026-09-07T08:00:00Z'); },
             modificationDate: function() { return null; },
-            body: function() { if (locked) throw new Error('must not read locked note'); return '<p>Text</p>'; } };
+            body: function() { if (locked) throw new Error('must not read locked note'); return '<p>Text</p><img src="data:image/png;base64,AAAA" alt="Photo">'; } };
         }
         openNote = note('open', false); protectedNote = note('locked', true);
         child = { id: function() { return 'child'; }, name: function() { return 'Child'; },
@@ -132,7 +147,13 @@ final class NotesTests: XCTestCase {
         let result = try NotesExporter.decode(NotesExporter.run(script: script, timeout: 10))
         XCTAssertEqual(result.records.count, 1)
         XCTAssertEqual(result.records.first?.folder, "Parent/Child")
-        XCTAssertEqual(result.warnings, ["1 password-protected note(s) were skipped."])
+        XCTAssertFalse(result.records.first?.bodyHTML.contains("data:image") == true)
+        XCTAssertFalse(result.records.first?.bodyHTML.contains("AAAA") == true)
+        XCTAssertTrue(result.records.first?.bodyHTML.contains("Photo") == true)
+        XCTAssertEqual(Set(result.warnings), [
+            "1 password-protected note(s) were skipped.",
+            "1 embedded image was omitted."
+        ])
     }
 
     func testProcessTimeoutWithoutAccessingNotes() throws {

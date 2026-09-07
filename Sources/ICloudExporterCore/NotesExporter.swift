@@ -15,7 +15,7 @@ public enum NotesExportError: Error, LocalizedError {
         case .cannotStart: return "The Notes exporter could not start."
         case .permissionDenied:
             return "Notes automation access was denied. Allow access in System Settings → Privacy & Security → Automation, then retry."
-        case .timedOut: return "The Notes export timed out. No Notes snapshot was produced."
+        case .timedOut: return "The Notes export timed out. A hidden Automation prompt or a large Notes library can cause this. No Notes snapshot was produced."
         case .failed: return "Notes could not be read completely. No Notes snapshot was produced."
         case .invalidOutput: return "Notes returned an invalid export. No Notes snapshot was produced."
         }
@@ -24,16 +24,17 @@ public enum NotesExportError: Error, LocalizedError {
 
 public enum NotesExporter {
     static var scriptURL: URL? { Bundle.module.url(forResource: "notes", withExtension: "js") }
+    static let fetchTimeout: TimeInterval = 15 * 60
 
     public static func fetch() async throws -> SourceResult<NoteRecord> {
         guard let script = scriptURL else {
             throw NotesExportError.missingScript
         }
-        ExportLog.info("notes: starting osascript (may prompt for Automation; up to 180s)")
+        ExportLog.info("notes: starting osascript (may prompt for Automation; large libraries can take several minutes)")
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let result = try decode(run(script: script, timeout: 180))
+                    let result = try decode(run(script: script, timeout: fetchTimeout))
                     ExportLog.info("notes: read \(result.records.count) notes")
                     continuation.resume(returning: result)
                 } catch {
@@ -56,37 +57,40 @@ public enum NotesExporter {
         }
         defer { try? FileManager.default.removeItem(at: directory) }
         let output = directory.appendingPathComponent("stdout")
-        let errorOutput = directory.appendingPathComponent("stderr")
-        for url in [output, errorOutput] {
+        let snapshot = directory.appendingPathComponent("snapshot.json")
+        for url in [output, snapshot] {
             guard FileManager.default.createFile(atPath: url.path, contents: nil,
                                                   attributes: [.posixPermissions: 0o600]) else {
                 throw NotesExportError.cannotStart
             }
         }
         let stdout: FileHandle
-        let stderr: FileHandle
         do {
             stdout = try FileHandle(forWritingTo: output)
-            stderr = try FileHandle(forWritingTo: errorOutput)
         } catch {
             throw NotesExportError.cannotStart
         }
-        defer {
-            try? stdout.close()
-            try? stderr.close()
+        defer { try? stdout.close() }
+
+        let errPipe = Pipe()
+        let progress = StderrProgress()
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if !chunk.isEmpty { progress.append(chunk) }
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-l", "JavaScript", script.path]
+        process.arguments = ["-l", "JavaScript", script.path, snapshot.path]
         process.standardOutput = stdout
-        process.standardError = stderr
+        process.standardError = errPipe
         process.standardInput = FileHandle.nullDevice
         let completed = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in completed.signal() }
         do {
             try process.run()
         } catch {
+            errPipe.fileHandleForReading.readabilityHandler = nil
             throw NotesExportError.cannotStart
         }
         ExportLog.info("notes: osascript pid \(process.processIdentifier)")
@@ -107,17 +111,21 @@ public enum NotesExporter {
                 kill(process.processIdentifier, SIGKILL)
                 _ = completed.wait(timeout: .now() + 2)
             }
+            errPipe.fileHandleForReading.readabilityHandler = nil
             throw NotesExportError.timedOut
         }
+        errPipe.fileHandleForReading.readabilityHandler = nil
+        progress.append(errPipe.fileHandleForReading.availableData)
         guard process.terminationStatus == 0 else {
             // Inspect only to classify the error; never surface raw stderr.
-            let message = (try? String(contentsOf: errorOutput, encoding: .utf8)) ?? ""
+            let message = progress.message
             if message.contains("NOTES_AUTOMATION_DENIED") || message.contains("-1743") {
                 throw NotesExportError.permissionDenied
             }
             throw NotesExportError.failed
         }
         do {
+            if let data = try? Data(contentsOf: snapshot), !data.isEmpty { return data }
             return try Data(contentsOf: output)
         } catch {
             throw NotesExportError.invalidOutput
@@ -163,5 +171,35 @@ public enum NotesExporter {
         } catch {
             throw NotesExportError.invalidOutput
         }
+    }
+}
+
+/// Forwards `NOTES_PROGRESS` lines to ExportLog and keeps stderr for error classification.
+final class StderrProgress {
+    private let lock = NSLock()
+    private var collected = Data()
+    private var leftover = ""
+
+    func append(_ data: Data) {
+        guard !data.isEmpty else { return }
+        var lines: [String] = []
+        lock.lock()
+        collected.append(data)
+        leftover += String(data: data, encoding: .utf8) ?? ""
+        while let range = leftover.range(of: "\n") {
+            let line = leftover[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            leftover = String(leftover[range.upperBound...])
+            if line.hasPrefix("NOTES_PROGRESS ") {
+                lines.append(String(line.dropFirst("NOTES_PROGRESS ".count)))
+            }
+        }
+        lock.unlock()
+        for line in lines { ExportLog.info("notes: \(line)") }
+    }
+
+    var message: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: collected, encoding: .utf8) ?? ""
     }
 }
