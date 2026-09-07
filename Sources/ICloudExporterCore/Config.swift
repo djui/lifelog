@@ -3,8 +3,8 @@ import Foundation
 public struct Config {
     public var output: URL
     public var sources: Set<ExportSource> = Set(ExportSource.allCases)
-    public var pastDays = 90
-    public var futureDays = 90
+    public var pastDays = 365
+    public var futureDays = 365
     public var completedDays = 30
     public var demo = false
 
@@ -53,8 +53,8 @@ public struct Config {
 
     Options:
       --sources notes,reminders,calendar   Sources to export (default: all)
-      --past-days N                       Calendar history (default: 90)
-      --future-days N                     Calendar lookahead (default: 90)
+      --past-days N                       Calendar history (default: 365)
+      --future-days N                     Calendar lookahead (default: 365)
       --completed-days N                  Completed reminder history (default: 30)
       --demo                              Export synthetic examples; no Apple access
       --help                              Show this help

@@ -28,8 +28,8 @@ macOS may ask for Calendar and Reminders access and permission to control Notes.
 ```text
 icloud-exporter export --output <directory>
   [--sources notes,reminders,calendar]
-  [--past-days 90]
-  [--future-days 90]
+  [--past-days 365]
+  [--future-days 365]
   [--completed-days 30]
   [--demo]
 ```
@@ -60,8 +60,8 @@ iCloud Export/
     current-reminders.md
     completed-recent.md
   Calendar/
-    upcoming-90-days.md
-    recent-90-days.md
+    upcoming-365-days.md
+    recent-365-days.md
 ```
 
 Calendar filenames reflect the configured windows: `upcoming-<future-days>-days.md` and `recent-<past-days>-days.md`. Note filenames include a stable identifier hash to distinguish notes with the same title. Path components are sanitized and lowercased so case-only renames work on macOS; titles and metadata retain their original case.

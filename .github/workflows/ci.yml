@@ -21,5 +21,5 @@ jobs:
           test -s "$output/_index.md"
           test -s "$output/Reminders/current-reminders.md"
           test -s "$output/Reminders/completed-recent.md"
-          test -s "$output/Calendar/upcoming-90-days.md"
-          test -s "$output/Calendar/recent-90-days.md"
+          test -s "$output/Calendar/upcoming-365-days.md"
+          test -s "$output/Calendar/recent-365-days.md"
