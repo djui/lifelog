@@ -29,10 +29,13 @@ public enum NotesExporter {
         guard let script = scriptURL else {
             throw NotesExportError.missingScript
         }
+        ExportLog.info("notes: starting osascript (may prompt for Automation; up to 180s)")
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try decode(run(script: script, timeout: 180)))
+                    let result = try decode(run(script: script, timeout: 180))
+                    ExportLog.info("notes: read \(result.records.count) notes")
+                    continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -86,7 +89,19 @@ public enum NotesExporter {
         } catch {
             throw NotesExportError.cannotStart
         }
-        if completed.wait(timeout: .now() + timeout) == .timedOut {
+        ExportLog.info("notes: osascript pid \(process.processIdentifier)")
+        let started = Date()
+        let deadline = started.addingTimeInterval(timeout)
+        var finished = false
+        while deadline.timeIntervalSinceNow > 0 {
+            if completed.wait(timeout: .now() + min(15, deadline.timeIntervalSinceNow)) == .success {
+                finished = true
+                break
+            }
+            ExportLog.info("notes: still waiting on osascript (\(Int(Date().timeIntervalSince(started)))s elapsed)")
+        }
+        if !finished {
+            ExportLog.info("notes: timed out after \(Int(timeout))s; stopping osascript")
             if process.isRunning { process.terminate() }
             if completed.wait(timeout: .now() + 2) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)

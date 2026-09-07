@@ -19,7 +19,9 @@ public final class EventKitExporter {
         let recentlyCompleted = store.predicateForCompletedReminders(
             withCompletionDateStarting: completedSince, ending: nil, calendars: nil
         )
+        ExportLog.info("reminders: fetching incomplete")
         let active = try await fetchReminders(matching: incomplete)
+        ExportLog.info("reminders: fetching completed since \(ISO8601DateFormatter().string(from: completedSince))")
         let completed = try await fetchReminders(matching: recentlyCompleted)
 
         // A reminder can change completion state between the two queries.
@@ -38,16 +40,22 @@ public final class EventKitExporter {
             )
             records[record.id] = record
         }
-        return SourceResult(records: records.values.sorted { $0.id < $1.id })
+        let result = SourceResult(records: records.values.sorted { $0.id < $1.id })
+        ExportLog.info("reminders: read \(result.records.count) reminders")
+        return result
     }
 
     public func events(from: Date, to: Date) async throws -> SourceResult<CalendarRecord> {
         try EventKitDates.validateEventRange(from: from, to: to)
         try await requireAccess(to: .event)
         try Task.checkCancellation()
+        let formatter = ISO8601DateFormatter()
+        ExportLog.info("calendar: fetching events from \(formatter.string(from: from)) to \(formatter.string(from: to))")
         let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
         let defaultTimeZone = TimeZone.current
-        let records = try store.events(matching: predicate).map { event in
+        let events = store.events(matching: predicate)
+        ExportLog.info("calendar: mapping \(events.count) EventKit events")
+        let records = try events.map { event in
             guard let start = event.startDate, let end = event.endDate,
                   start.timeIntervalSinceReferenceDate.isFinite,
                   end.timeIntervalSinceReferenceDate.isFinite, end >= start else {
@@ -77,23 +85,27 @@ public final class EventKitExporter {
             )
         }
         try Task.checkCancellation()
-        return SourceResult(records: records.sorted {
+        let result = SourceResult(records: records.sorted {
             $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start
         })
+        ExportLog.info("calendar: read \(result.records.count) events")
+        return result
     }
 
     private func requireAccess(to entity: EKEntityType) async throws {
         try Task.checkCancellation()
         let source = entity == .event ? "Calendars" : "Reminders"
+        let label = entity == .event ? "calendar" : "reminders"
         switch EKEventStore.authorizationStatus(for: entity) {
         case .fullAccess:
+            ExportLog.info("\(label): access already granted")
             return
         case .restricted:
             throw ExportError.message("\(source) access is restricted by macOS policy. Ask the Mac's administrator to allow iCloud Exporter to access \(source), then run it again.")
         case .denied:
             throw accessDenied(source)
         case .notDetermined, .writeOnly:
-            break
+            ExportLog.info("\(label): waiting for access prompt")
         @unknown default:
             throw accessDenied(source)
         }
@@ -109,6 +121,7 @@ public final class EventKitExporter {
         }
         try Task.checkCancellation()
         guard granted else { throw accessDenied(source) }
+        ExportLog.info("\(label): access granted")
     }
 
     private func accessDenied(_ source: String) -> ExportError {
@@ -226,7 +239,14 @@ final class EventKitCallback<Value> {
             return try await withCheckedThrowingContinuation { continuation in
                 callback.continuation = continuation
                 callback.deadline = Task { @MainActor in
-                    do { try await Task.sleep(nanoseconds: timeoutNanoseconds) } catch { return }
+                    var elapsed: UInt64 = 0
+                    let step: UInt64 = 15_000_000_000
+                    while elapsed + step < timeoutNanoseconds {
+                        do { try await Task.sleep(nanoseconds: step) } catch { return }
+                        elapsed += step
+                        ExportLog.info("reminders: still waiting for EventKit (\(elapsed / 1_000_000_000)s)")
+                    }
+                    do { try await Task.sleep(nanoseconds: timeoutNanoseconds - elapsed) } catch { return }
                     callback.finish(.failure(ExportError.message("Reminders did not respond within 60 seconds. Open Reminders and try the export again.")), cancelling: true)
                 }
                 callback.cancelRequest = start { result in

@@ -1,5 +1,11 @@
 import Foundation
 
+/// Progress for long Apple reads. The CLI writes these to stderr; tests leave this unset.
+public enum ExportLog {
+    public static var handler: (@Sendable (String) -> Void)?
+    public static func info(_ message: String) { handler?(message) }
+}
+
 public struct SourceResult<Record> {
     public var records: [Record]
     public var warnings: [String]

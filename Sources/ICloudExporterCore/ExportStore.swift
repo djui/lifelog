@@ -48,6 +48,7 @@ public final class ExportStore {
         try validate(previous, mode: mode)
         let committed = previous
         if manager.fileExists(atPath: pendingURL.path) {
+            ExportLog.info("recovering interrupted export in \(root.path)")
             let pending: Pending
             do { pending = try decoder.decode(Pending.self, from: Data(contentsOf: pendingURL)) }
             catch { throw ExportError.message("Export recovery journal cannot be read. Restore it or choose a new output directory.") }
@@ -97,6 +98,7 @@ public final class ExportStore {
         // Save both accepted versions before any mutation. A later run can resume
         // a mix of old/new files without treating exporter writes as manual edits.
         try encoder.encode(Pending(committed: committed, before: previous, after: next, sources: selected)).write(to: pendingURL, options: .atomic)
+        ExportLog.info("writing \(desired.count) files to \(root.path)\(removed.isEmpty ? "" : ", removing \(removed.count) stale")")
         var summary = ExportSummary()
         for path in desired.keys.sorted() {
             let url = try checked(path)

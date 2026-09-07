@@ -12,12 +12,18 @@ struct ICloudExporter {
             return
         }
         if arguments == ["--version"] { print("icloud-exporter 0.1.0"); return }
+        ExportLog.handler = { message in
+            FileHandle.standardError.write(Data(("icloud-exporter: \(message)\n").utf8))
+        }
         do {
             let config = try Config(arguments: arguments)
             let now = Date()
             let window = config.window(now: now)
+            let selected = ExportSource.allCases.filter { config.sources.contains($0) }.map(\.rawValue).joined(separator: ", ")
+            ExportLog.info("starting \(config.demo ? "demo" : "live") export of \(selected) to \(config.output.path)")
             var snapshot = ExportSnapshot()
             if config.demo {
+                ExportLog.info("using synthetic demo data")
                 snapshot = Demo.snapshot(now: now)
             } else {
                 let eventKit = EventKitExporter()
@@ -35,6 +41,7 @@ struct ICloudExporter {
                 }
             }
             // Complete all source reads before changing the managed snapshot.
+            ExportLog.info("rendering markdown for \(config.sources.contains(.notes) ? snapshot.notes.count : 0) notes, \(config.sources.contains(.reminders) ? snapshot.reminders.count : 0) reminders, \(config.sources.contains(.calendar) ? snapshot.events.count : 0) events")
             let documents = try MarkdownWriter.documents(snapshot: snapshot, config: config, now: now)
             let summary = try ExportStore(output: config.output).write(documents, sources: config.sources, now: now, demo: config.demo, warnings: snapshot.warnings)
             print("Export complete: \(summary.written) files written, \(summary.unchanged) unchanged, \(summary.removed) removed.")
