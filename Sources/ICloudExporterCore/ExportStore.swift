@@ -83,7 +83,7 @@ public final class ExportStore {
             }
         }
         guard Set(documents.map(\.path)).count == documents.count,
-              documents.allSatisfy({ sources.contains($0.source) && $0.path.hasPrefix($0.source.rawValue.capitalized + "/") }) else {
+              documents.allSatisfy({ sources.contains($0.source) && $0.path.hasPrefix($0.source.directoryName + "/") }) else {
             throw ExportError.message("Invalid export plan; document paths must be unique and belong to selected sources.")
         }
         var desired = Dictionary(uniqueKeysWithValues: documents.map { ($0.path, Data($0.content.utf8)) })
@@ -142,7 +142,7 @@ public final class ExportStore {
         guard manifest.version == 1, manifest.mode == mode else { throw ExportError.message("Output belongs to a different export version or demo/live mode. Choose a separate directory.") }
         for (path, entry) in manifest.files {
             let correctSource = entry.source == "index" ? path == "_index.md" :
-                ExportSource(rawValue: entry.source).map { path.hasPrefix($0.rawValue.capitalized + "/") } == true
+                ExportSource(rawValue: entry.source).map { path.hasPrefix($0.directoryName + "/") } == true
             guard correctSource, path.hasSuffix(".md"), entry.digest.count == 64,
                   entry.digest.allSatisfy({ $0.isHexDigit }) else { throw ExportError.message("Invalid managed file in export manifest.") }
             _ = try checked(path)
@@ -168,11 +168,11 @@ public final class ExportStore {
     }
 
     func index(_ manifest: Manifest) -> String {
-        var lines = ["# iCloud Export", "", "Read-only snapshots of Apple data. Edit the original in its Apple app; exported files are managed by icloud-exporter.", ""]
+        var lines = ["# iCloud Export", "", "Read-only snapshots of Notes, Reminders, Calendar, and WhatsApp. Edit the original in its app; exported files are managed by icloud-exporter.", ""]
         if manifest.mode == "demo" { lines += ["**Demo: synthetic examples only.**", ""] }
         for source in ExportSource.allCases {
             guard let updated = manifest.updated[source.rawValue] else { continue }
-            lines += ["## \(source.rawValue.capitalized)", "", "Last successful export: \(MarkdownWriter.timestamp(updated))", ""]
+            lines += ["## \(source.displayName)", "", "Last successful export: \(MarkdownWriter.timestamp(updated))", ""]
             for path in manifest.files.keys.sorted() where manifest.files[path]?.source == source.rawValue {
                 var allowed = CharacterSet.urlPathAllowed
                 allowed.remove(charactersIn: "?#[]()")
@@ -181,7 +181,7 @@ public final class ExportStore {
             }
             lines.append("")
         }
-        let warnings = ExportSource.allCases.flatMap { source in (manifest.warnings[source.rawValue] ?? []).map { "- \(source.rawValue.capitalized): " + $0 } }
+        let warnings = ExportSource.allCases.flatMap { source in (manifest.warnings[source.rawValue] ?? []).map { "- \(source.displayName): " + $0 } }
         if !warnings.isEmpty { lines += ["## Export warnings", ""] + warnings + [""] }
         return lines.joined(separator: "\n") + "\n"
     }

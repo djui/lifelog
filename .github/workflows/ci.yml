@@ -23,3 +23,5 @@ jobs:
           test -s "$output/Reminders/completed-recent.md"
           test -s "$output/Calendar/upcoming-365-days.md"
           test -s "$output/Calendar/recent-365-days.md"
+          test -d "$output/WhatsApp"
+          test -n "$(ls "$output/WhatsApp"/*.md 2>/dev/null)"

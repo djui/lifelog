@@ -12,6 +12,19 @@ public enum Demo {
             CalendarRecord(id: "demo-event-1", title: "Trip planning", calendar: "Personal", start: now.addingTimeInterval(3600), end: now.addingTimeInterval(7200), isAllDay: false, timeZone: TimeZone.current.identifier, location: nil, notes: "Compare a few possible routes.", url: nil),
             CalendarRecord(id: "demo-event-2", title: "Planning catch-up", calendar: "Personal", start: now.addingTimeInterval(-7200), end: now.addingTimeInterval(-3600), isAllDay: false, timeZone: TimeZone.current.identifier, location: nil, notes: nil, url: nil)
         ]
+        snapshot.chats = [
+            WhatsAppChatRecord(
+                id: "demo-chat-1",
+                title: "Alex",
+                kind: "direct",
+                jid: "15555550100@s.whatsapp.net",
+                messages: [
+                    WhatsAppMessageRecord(id: "demo-msg-1", sender: "Me", timestamp: now.addingTimeInterval(-3600), fromMe: true, text: "Want to compare a few trail options this week?", placeholder: nil),
+                    WhatsAppMessageRecord(id: "demo-msg-2", sender: "Alex", timestamp: now.addingTimeInterval(-1800), fromMe: false, text: "Yes — I will send the map.", placeholder: nil),
+                    WhatsAppMessageRecord(id: "demo-msg-3", sender: "Alex", timestamp: now.addingTimeInterval(-600), fromMe: false, text: nil, placeholder: "Image")
+                ]
+            )
+        ]
         return snapshot
     }
 }

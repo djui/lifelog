@@ -60,6 +60,15 @@ public enum MarkdownWriter {
             documents.append(ExportDocument(path: "Calendar/recent-\(config.pastDays)-days.md", content: events(sorted.filter { $0.start < now && $0.end > window.start }, title: "Calendar: recent \(config.pastDays) days", from: window.start, to: now), source: .calendar))
             documents.append(ExportDocument(path: "Calendar/upcoming-\(config.futureDays)-days.md", content: events(sorted.filter { $0.end > now && $0.start < window.end }, title: "Calendar: upcoming \(config.futureDays) days", from: now, to: window.end), source: .calendar))
         }
+        if config.sources.contains(.whatsapp) {
+            var ids = Set<String>()
+            for chat in snapshot.chats.sorted(by: { $0.id < $1.id }) {
+                guard !chat.id.isEmpty, ids.insert(chat.id).inserted else { throw ExportError.message("WhatsApp returned a missing or duplicate identifier; export stopped.") }
+                let path = [ExportSource.whatsapp.directoryName, safeComponent(chat.title) + "--" + digest(Data(chat.id.utf8)).prefix(16) + ".md"].joined(separator: "/")
+                let meta = ["---", "chat_id: \(yaml(chat.id))", "title: \(yaml(chat.title))", "kind: \(yaml(chat.kind))", "jid: \(yaml(chat.jid))", "---"]
+                documents.append(ExportDocument(path: path, content: chatMarkdown(chat, meta: meta), source: .whatsapp))
+            }
+        }
         guard Set(documents.map(\.path)).count == documents.count else { throw ExportError.message("Export filenames collide; no files were written.") }
         return documents
     }
@@ -96,5 +105,24 @@ public enum MarkdownWriter {
             lines.append("")
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func chatMarkdown(_ chat: WhatsAppChatRecord, meta: [String]) -> String {
+        var lines = meta + ["", "# \(line(chat.title))", ""]
+        let messages = chat.messages.sorted { ($0.timestamp, $0.id) < ($1.timestamp, $1.id) }
+        if messages.isEmpty { lines.append("No messages in this view.") }
+        for message in messages {
+            guard let body = messageBody(message) else { continue }
+            lines.append("- \(timestamp(message.timestamp)) **\(line(message.sender)):** \(line(body))")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func messageBody(_ message: WhatsAppMessageRecord) -> String? {
+        let caption = message.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let placeholder = message.placeholder, !placeholder.isEmpty {
+            return caption.isEmpty ? "[\(placeholder)]" : "[\(placeholder)] \(caption)"
+        }
+        return caption.isEmpty ? nil : caption
     }
 }

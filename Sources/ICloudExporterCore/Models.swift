@@ -60,12 +60,47 @@ public struct CalendarRecord: Codable {
     }
 }
 
-public enum ExportSource: String, Codable, CaseIterable { case notes, reminders, calendar }
+public struct WhatsAppMessageRecord: Codable {
+    public var id, sender: String
+    public var timestamp: Date
+    public var fromMe: Bool
+    public var text: String?
+    public var placeholder: String?
+    public init(id: String, sender: String, timestamp: Date, fromMe: Bool, text: String?, placeholder: String?) {
+        self.id = id; self.sender = sender; self.timestamp = timestamp
+        self.fromMe = fromMe; self.text = text; self.placeholder = placeholder
+    }
+}
+
+public struct WhatsAppChatRecord: Codable {
+    public var id, title, kind, jid: String
+    public var messages: [WhatsAppMessageRecord]
+    public init(id: String, title: String, kind: String, jid: String, messages: [WhatsAppMessageRecord]) {
+        self.id = id; self.title = title; self.kind = kind; self.jid = jid
+        self.messages = messages
+    }
+}
+
+public enum ExportSource: String, Codable, CaseIterable {
+    case notes, reminders, calendar, whatsapp
+
+    public var directoryName: String {
+        switch self {
+        case .notes: return "Notes"
+        case .reminders: return "Reminders"
+        case .calendar: return "Calendar"
+        case .whatsapp: return "WhatsApp"
+        }
+    }
+
+    public var displayName: String { directoryName }
+}
 
 public struct ExportSnapshot {
     public var notes: [NoteRecord] = []
     public var reminders: [ReminderRecord] = []
     public var events: [CalendarRecord] = []
+    public var chats: [WhatsAppChatRecord] = []
     public var warnings: [ExportSource: [String]] = [:]
     public init() {}
 }

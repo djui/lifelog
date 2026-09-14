@@ -1,6 +1,6 @@
 # icloud-exporter
 
-A local, read-only exporter for Apple Notes, Reminders, and Calendar. It writes Markdown files that you can browse, search, or provide to an AI tool of your choice. The exporter does not change your Apple data and does not need an API key, web service, MCP server, or ChatGPT subscription.
+A local, read-only exporter for Apple Notes, Reminders, Calendar, and local WhatsApp chats. It writes Markdown files that you can browse, search, or provide to an AI tool of your choice. The exporter does not change your Apple or WhatsApp data and does not need an API key, web service, MCP server, or ChatGPT subscription.
 
 Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-party package dependencies.
 
@@ -12,7 +12,7 @@ Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-p
 ./dist/icloud-exporter/icloud-exporter export --output "$PWD/demo-export" --demo
 ```
 
-The demo uses synthetic data and does not request access to Notes, Reminders, or Calendar. The build script puts the executable and its required SwiftPM resource bundle together in `dist/icloud-exporter/`. Keep that directory together when copying the exporter elsewhere.
+The demo uses synthetic data and does not request access to Notes, Reminders, Calendar, or WhatsApp. The build script puts the executable and its required SwiftPM resource bundle together in `dist/icloud-exporter/`. Keep that directory together when copying the exporter elsewhere.
 
 To export your data, run the packaged executable in the foreground first:
 
@@ -21,20 +21,20 @@ To export your data, run the packaged executable in the foreground first:
   --output "$HOME/Documents/iCloud Export"
 ```
 
-macOS may ask for Calendar and Reminders access and permission to control Notes. Grant the requested access for the sources you want to export. Notes uses macOS automation; Calendar and Reminders use EventKit. If access was denied, review the relevant entries in System Settings → Privacy & Security before retrying. Use the same executable path for the initial permission run and any scheduled runs.
+macOS may ask for Calendar and Reminders access and permission to control Notes. WhatsApp is read from the local WhatsApp Desktop database and may require Full Disk Access. Grant the requested access for the sources you want to export. Notes uses macOS automation; Calendar and Reminders use EventKit; WhatsApp is an unofficial read of WhatsApp Desktop’s `ChatStorage.sqlite`. If access was denied, review the relevant entries in System Settings → Privacy & Security before retrying. Use the same executable path for the initial permission run and any scheduled runs.
 
 ## Options
 
 ```text
 icloud-exporter export --output <directory>
-  [--sources notes,reminders,calendar]
+  [--sources notes,reminders,calendar,whatsapp]
   [--past-days 365]
   [--future-days 365]
   [--completed-days 30]
   [--demo]
 ```
 
-`--output` is required. All three sources are selected by default. Use a comma-separated list to limit the export:
+`--output` is required. All four sources are selected by default. Use a comma-separated list to limit the export:
 
 ```sh
 ./dist/icloud-exporter/icloud-exporter export \
@@ -43,7 +43,7 @@ icloud-exporter export --output <directory>
   --past-days 30 --future-days 60 --completed-days 14
 ```
 
-`--past-days` and `--future-days` set the Calendar look-back and look-ahead windows, measured from the time the export starts. Events that overlap a window are included; an ongoing event can appear in both files. `--completed-days` limits recently completed reminders; incomplete reminders are exported separately. `--help` displays usage and `--version` displays the exporter version.
+`--past-days` and `--future-days` set the Calendar look-back and look-ahead windows, measured from the time the export starts. Events that overlap a window are included; an ongoing event can appear in both files. `--past-days` also limits WhatsApp message history. WhatsApp exports the 20 most recently active 1:1 and group chats in that window. `--completed-days` limits recently completed reminders; incomplete reminders are exported separately. `--help` displays usage and `--version` displays the exporter version.
 
 ## Exported files
 
@@ -62,9 +62,11 @@ iCloud Export/
   Calendar/
     upcoming-365-days.md
     recent-365-days.md
+  WhatsApp/
+    <chat>--<stable-hash>.md
 ```
 
-Calendar filenames reflect the configured windows: `upcoming-<future-days>-days.md` and `recent-<past-days>-days.md`. Note filenames include a stable identifier hash to distinguish notes with the same title. Path components are sanitized and lowercased so case-only renames work on macOS; titles and metadata retain their original case.
+Calendar filenames reflect the configured windows: `upcoming-<future-days>-days.md` and `recent-<past-days>-days.md`. Note and WhatsApp filenames include a stable identifier hash to distinguish items with the same title. Path components are sanitized and lowercased so case-only renames work on macOS; titles and metadata retain their original case.
 
 The hidden `.icloud-exporter-manifest.json` tracks files managed by the exporter so that subsequent runs can remove stale exports. Unrelated files are preserved. Exporting selected sources preserves the previous exports and timestamps for unselected sources in the index. If an existing destination file has been edited or is not managed by the exporter, the run refuses to overwrite it. Treat generated files as snapshots: keep your own annotations separately, or export into a new directory when resolving a conflict.
 
@@ -77,9 +79,10 @@ Choose any writable output directory. It can be a local folder or a folder synce
 - All password-protected Notes are skipped, even when currently unlocked. Embedded images, drawings, scans, and attachments are replaced with placeholders so the export stays small.
 - Notes formatting is converted to Markdown on a best-effort basis; the result is a text snapshot, not a full Notes backup.
 - Calendar export covers the requested time windows rather than the entire calendar history.
+- WhatsApp export reads the local WhatsApp Desktop database only (`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`). It is unofficial, does not talk to WhatsApp servers, and is not a full chat backup. It writes the 20 most recently active chats, limited to `--past-days`. Images, audio, video, and other attachments become placeholders; media files are not copied. Missing WhatsApp data is skipped with a warning. If the database exists but cannot be read, grant Full Disk Access to the same packaged executable used for Notes, Calendar, and Reminders.
 - Access depends on the macOS permissions and Apple accounts available to the user running the exporter. Scheduling does not bypass permission prompts. After rebuilding with a new bundle identifier, macOS treats the exporter as a different app and asks for Calendar, Reminders, and Notes access again.
 - Export folders from an older build are not recognized. Use a new output directory, or the run will refuse to overwrite files it does not manage.
-- This is a one-way export. Editing Markdown does not update Notes, Reminders, or Calendar.
+- This is a one-way export. Editing Markdown does not update Notes, Reminders, Calendar, or WhatsApp.
 
 ## Optional scheduling with launchd
 
@@ -113,4 +116,4 @@ swift test
 ./scripts/build.sh
 ```
 
-CI runs tests on macOS and checks that the packaged executable can produce a demo export. Tests and the demo do not require access to your Apple data.
+CI runs tests on macOS and checks that the packaged executable can produce a demo export. Tests and the demo do not require access to your Apple or WhatsApp data.

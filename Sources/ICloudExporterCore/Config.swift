@@ -6,6 +6,7 @@ public struct Config {
     public var pastDays = 365
     public var futureDays = 365
     public var completedDays = 30
+    public var whatsappChats = 20
     public var demo = false
 
     public init(arguments: [String]) throws {
@@ -25,7 +26,7 @@ public struct Config {
             case "--sources":
                 let names = value.split(separator: ",", omittingEmptySubsequences: false)
                 let selected = names.compactMap { ExportSource(rawValue: String($0)) }
-                guard selected.count == names.count, !selected.isEmpty else { throw ExportError.message("Sources must be a comma-separated list of notes,reminders,calendar.") }
+                guard selected.count == names.count, !selected.isEmpty else { throw ExportError.message("Sources must be a comma-separated list of \(ExportSource.allCases.map(\.rawValue).joined(separator: ",")).") }
                 sources = Set(selected)
             default:
                 guard let days = Int(value), (1...730).contains(days) else { throw ExportError.message("\(option) must be between 1 and 730 days.") }
@@ -46,21 +47,22 @@ public struct Config {
     }
 
     public static let help = """
-    icloud-exporter — read Apple Notes, Reminders, and Calendar into Markdown
+    icloud-exporter — read Apple Notes, Reminders, Calendar, and WhatsApp chats into Markdown
 
     Usage:
       icloud-exporter export --output <directory> [options]
 
     Options:
-      --sources notes,reminders,calendar   Sources to export (default: all)
-      --past-days N                       Calendar history (default: 365)
+      --sources notes,reminders,calendar,whatsapp   Sources to export (default: all)
+      --past-days N                       Calendar and WhatsApp history (default: 365)
       --future-days N                     Calendar lookahead (default: 365)
       --completed-days N                  Completed reminder history (default: 30)
-      --demo                              Export synthetic examples; no Apple access
+      --demo                              Export synthetic examples; no local app access
       --help                              Show this help
       --version                           Show version
 
-    Day counts must be 1–730. Exported files are managed snapshots, not backups.
+    Day counts must be 1–730. WhatsApp exports the 20 most recently active chats
+    in that history window. Exported files are managed snapshots, not backups.
     Choose an empty dedicated folder, or a previous export folder.
     """
 }
