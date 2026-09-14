@@ -8,20 +8,20 @@ Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-p
 
 ```sh
 ./scripts/build.sh
-./dist/icloud-exporter/icloud-exporter --help
-./dist/icloud-exporter/icloud-exporter export --output "$PWD/demo-export" --demo
+./dist/icloud-exporter --help
+./dist/icloud-exporter export --output "$PWD/demo-export" --demo
 ```
 
-The demo uses synthetic data and does not request access to Notes, Reminders, Calendar, or WhatsApp. The build script puts the executable and its required SwiftPM resource bundle together in `dist/icloud-exporter/`. Keep that directory together when copying the exporter elsewhere.
+The demo uses synthetic data and does not request access to Notes, Reminders, Calendar, or WhatsApp. The build script packages a signed `dist/icloud-exporter.app` (required for macOS permissions) and a convenience symlink at `dist/icloud-exporter`. Keep the `.app` together when copying the exporter elsewhere.
 
-To export your data, run the packaged executable in the foreground first:
+To export your data, run the packaged app in the foreground first:
 
 ```sh
-./dist/icloud-exporter/icloud-exporter export \
+./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export \
   --output "$HOME/Documents/iCloud Export"
 ```
 
-macOS may ask for Calendar and Reminders access and permission to control Notes. WhatsApp is read from the local WhatsApp Desktop database and may require Full Disk Access. Grant the requested access for the sources you want to export. Notes uses macOS automation; Calendar and Reminders use EventKit; WhatsApp is an unofficial read of WhatsApp Desktop’s `ChatStorage.sqlite`. If access was denied, review the relevant entries in System Settings → Privacy & Security before retrying. Use the same executable path for the initial permission run and any scheduled runs.
+macOS may ask for Calendar and Reminders access, permission to control Notes, and permission to access data from other apps (WhatsApp’s local database, and any export folder owned by another app such as Google Drive). Grant those prompts once for `iCloud Exporter`. If a scheduled run keeps asking, macOS is not recognizing a stable app identity: use the `.app` path above, not `swift run` or a rebuilt unsigned binary. Notes uses macOS automation; Calendar and Reminders use EventKit; WhatsApp is an unofficial read of WhatsApp Desktop’s `ChatStorage.sqlite`. If access was denied, review System Settings → Privacy & Security (Calendar, Reminders, Automation, and Full Disk Access) and add `icloud-exporter.app` there. Use that same `.app` for scheduled runs.
 
 ## Options
 
@@ -37,7 +37,7 @@ icloud-exporter export --output <directory>
 `--output` is required. All four sources are selected by default. Use a comma-separated list to limit the export:
 
 ```sh
-./dist/icloud-exporter/icloud-exporter export \
+./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export \
   --output "$HOME/Documents/iCloud Export" \
   --sources reminders,calendar \
   --past-days 30 --future-days 60 --completed-days 14
@@ -79,17 +79,17 @@ Choose any writable output directory. It can be a local folder or a folder synce
 - All password-protected Notes are skipped, even when currently unlocked. Embedded images, drawings, scans, and attachments are replaced with placeholders so the export stays small.
 - Notes formatting is converted to Markdown on a best-effort basis; the result is a text snapshot, not a full Notes backup.
 - Calendar export covers the requested time windows rather than the entire calendar history.
-- WhatsApp export reads the local WhatsApp Desktop database only (`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`). It is unofficial, does not talk to WhatsApp servers, and is not a full chat backup. It writes the 20 most recently active chats, limited to `--past-days`. Images, audio, video, and other attachments become placeholders; media files are not copied. Missing WhatsApp data is skipped with a warning. If the database exists but cannot be read, grant Full Disk Access to the same packaged executable used for Notes, Calendar, and Reminders.
-- Access depends on the macOS permissions and Apple accounts available to the user running the exporter. Scheduling does not bypass permission prompts. After rebuilding with a new bundle identifier, macOS treats the exporter as a different app and asks for Calendar, Reminders, and Notes access again.
+- WhatsApp export reads the local WhatsApp Desktop database only (`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`). It is unofficial, does not talk to WhatsApp servers, and is not a full chat backup. It writes the 20 most recently active chats, limited to `--past-days`. Images, audio, video, and other attachments become placeholders; media files are not copied. Missing WhatsApp data is skipped with a warning. If the database exists but cannot be read, allow access to other apps’ data, or grant Full Disk Access to `icloud-exporter.app`.
+- Access depends on the macOS permissions and Apple accounts available to the user running the exporter. Scheduling does not bypass permission prompts. A bare or ad-hoc CLI has no stable identity, so macOS can ask again on every launchd run. The packaged, signed `.app` is the identity to grant. After rebuilding with a different bundle identifier or an ad-hoc signature, macOS treats the exporter as a new app and asks again.
 - Export folders from an older build are not recognized. Use a new output directory, or the run will refuse to overwrite files it does not manage.
 - This is a one-way export. Editing Markdown does not update Notes, Reminders, Calendar, or WhatsApp.
 
 ## Optional scheduling with launchd
 
-Scheduling is manual. First complete a successful foreground export using the executable path you intend to schedule. Then:
+Scheduling is manual. First complete a successful foreground export using `dist/icloud-exporter.app/Contents/MacOS/icloud-exporter`, the same path you will schedule. Then:
 
 1. Create `~/Library/LaunchAgents` if needed, then copy `launchd/com.djui.icloud-exporter.plist.example` to `~/Library/LaunchAgents/com.djui.icloud-exporter.plist`.
-2. Edit the copied file, replacing every placeholder with an absolute path for the executable, output directory, and log files. Create the parent log directory if it does not exist. A plist does not expand `~`, `$HOME`, or shell commands. Escape XML characters such as `&` as `&amp;` when they occur in paths.
+2. Edit the copied file, replacing every placeholder with an absolute path for the `.app` executable, output directory, and log files. Leave `AssociatedBundleIdentifiers` as `com.djui.icloud-exporter`. Create the parent log directory if it does not exist. A plist does not expand `~`, `$HOME`, or shell commands. Escape XML characters such as `&` as `&amp;` when they occur in paths.
 3. Validate and load the agent:
 
 ```sh

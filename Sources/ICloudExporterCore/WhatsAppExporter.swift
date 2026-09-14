@@ -10,7 +10,7 @@ public enum WhatsAppExportError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "WhatsApp data could not be read. Grant Full Disk Access to this executable in System Settings → Privacy & Security → Full Disk Access, then retry."
+            return "WhatsApp data could not be read. Allow access to other apps’ data, or grant Full Disk Access to icloud-exporter.app in System Settings → Privacy & Security, then retry."
         case .unrecognizedSchema:
             return "WhatsApp database schema is not recognized. No WhatsApp snapshot was produced."
         case .cannotRead:

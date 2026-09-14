@@ -23,7 +23,20 @@ public enum NotesExportError: Error, LocalizedError {
 }
 
 public enum NotesExporter {
-    static var scriptURL: URL? { Bundle.module.url(forResource: "notes", withExtension: "js") }
+    static let resourceBundleName = "ICloudExporter_ICloudExporterCore.bundle"
+
+    static var scriptURL: URL? {
+        let roots = [
+            Bundle.main.resourceURL?.appendingPathComponent(resourceBundleName),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(resourceBundleName)"),
+            Bundle.main.bundleURL.appendingPathComponent(resourceBundleName)
+        ]
+        for root in roots.compactMap({ $0 }) {
+            let script = root.appendingPathComponent("notes.js")
+            if FileManager.default.isReadableFile(atPath: script.path) { return script }
+        }
+        return Bundle.module.url(forResource: "notes", withExtension: "js")
+    }
     static let fetchTimeout: TimeInterval = 15 * 60
 
     public static func fetch() async throws -> SourceResult<NoteRecord> {

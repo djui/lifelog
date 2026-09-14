@@ -17,7 +17,9 @@ jobs:
         shell: bash
         run: |
           output="$RUNNER_TEMP/icloud-exporter-demo"
-          ./dist/icloud-exporter/icloud-exporter export --output "$output" --demo
+          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export --output "$output" --demo
+          test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/notes.js
+          codesign -dv --verbose=4 dist/icloud-exporter.app 2>&1 | grep -q "Identifier=com.djui.icloud-exporter"
           test -s "$output/_index.md"
           test -s "$output/Reminders/current-reminders.md"
           test -s "$output/Reminders/completed-recent.md"

@@ -4,9 +4,17 @@
 <dict>
     <key>Label</key>
     <string>com.djui.icloud-exporter</string>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.djui.icloud-exporter</string>
+    </array>
+    <key>LimitLoadToSessionType</key>
+    <array>
+        <string>Aqua</string>
+    </array>
     <key>ProgramArguments</key>
     <array>
-        <string>/ABSOLUTE/PATH/TO/icloud-exporter/dist/icloud-exporter/icloud-exporter</string>
+        <string>/ABSOLUTE/PATH/TO/icloud-exporter/dist/icloud-exporter.app/Contents/MacOS/icloud-exporter</string>
         <string>export</string>
         <string>--output</string>
         <string>/ABSOLUTE/PATH/TO/iCloud Export</string>
