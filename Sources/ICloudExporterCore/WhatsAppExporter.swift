@@ -123,7 +123,7 @@ public enum WhatsAppExporter {
                   AND m.ZMESSAGEDATE <= ?
                   AND (
                     m.ZMESSAGETYPE IN (1, 2, 3, 4, 5, 8)
-                    OR (m.ZMESSAGETYPE = 0 AND m.ZTEXT IS NOT NULL AND TRIM(m.ZTEXT) != '')
+                    OR (m.ZMESSAGETYPE IN (0, 7, 41, 42, 43) AND m.ZTEXT IS NOT NULL AND TRIM(m.ZTEXT) != '')
                   )
               )
             ORDER BY s.ZLASTMESSAGEDATE DESC
@@ -148,14 +148,15 @@ public enum WhatsAppExporter {
                 WHERE m.ZCHATSESSION = ?
                   AND m.ZMESSAGEDATE >= ?
                   AND m.ZMESSAGEDATE <= ?
-                  AND m.ZMESSAGETYPE IN (0, 1, 2, 3, 4, 5, 8)
+                  AND m.ZMESSAGETYPE IN (0, 1, 2, 3, 4, 5, 7, 8, 41, 42, 43)
                 ORDER BY m.ZMESSAGEDATE ASC, m.Z_PK ASC
                 """, bind: [.int(session.id), .double(windowStart), .double(windowEnd)]) { row in
                 let type = Int(row.int(3))
                 let text = nonempty(row.text(4))
                 let placeholder = Self.placeholder(for: type)
-                if type == 0 && text == nil { return }
-                if placeholder == nil && type != 0 { return }
+                let isText = textTypes.contains(type)
+                if isText && text == nil { return }
+                if placeholder == nil && !isText { return }
                 let fromMe = row.int(2) == 1
                 let fromJID = row.text(5) ?? ""
                 let memberJID = row.text(9) ?? fromJID
@@ -182,6 +183,9 @@ public enum WhatsAppExporter {
         }
         return chats
     }
+
+    /// Plain text (0), text with a link preview (7), and text-bearing types 41–43 seen in WhatsApp Desktop 26.x.
+    static let textTypes: Set<Int> = [0, 7, 41, 42, 43]
 
     static func placeholder(for type: Int) -> String? {
         switch type {
