@@ -270,7 +270,7 @@ final class ArchiveViewTests: XCTestCase {
 
         // `rebuild` takes the same warnings from the run log.
         let ledger = Ledger(root: root, host: "rebuild"), runLog = RunLog(root: root, host: "rebuild")
-        let warnings = Health.warnings(runLog: runLog, now: later + 3600, whatsAppRunning: nil)
+        let warnings = Health.warnings(runLog: runLog, now: later + 3600, whatsAppRunning: nil, timeZone: Self.berlin)
         XCTAssertFalse(warnings.isEmpty)
         _ = try Archiver.rebuild(ledger, runLog: runLog, index: try ArchiveIndex.load(ledger, cacheRoot: nil), now: later + 3600, timeZone: Self.berlin, health: warnings)
         let rebuilt = try String(contentsOf: root.appendingPathComponent("_index.md"), encoding: .utf8)
