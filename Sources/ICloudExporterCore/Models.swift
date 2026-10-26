@@ -162,11 +162,11 @@ public enum ExportSource: String, Codable, CaseIterable {
         case .whatsapp: return "WhatsApp"
         case .chatgpt: return "ChatGPT"
         case .claude: return "Claude"
-        case .claudecode: return "Claude Code"
+        case .claudecode: return "ClaudeCode"
         }
     }
 
-    public var displayName: String { directoryName }
+    public var displayName: String { self == .claudecode ? "Claude Code" : directoryName }
 }
 
 public struct ExportSnapshot {

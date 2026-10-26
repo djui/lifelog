@@ -12,6 +12,6 @@ let package = Package(
         .executableTarget(name: "ICloudExporter", dependencies: ["ICloudExporterCore"], linkerSettings: [
             .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", root + "/Support/Info.plist"])
         ]),
-        .testTarget(name: "ICloudExporterCoreTests", dependencies: ["ICloudExporterCore"], linkerSettings: [.linkedLibrary("sqlite3")])
+        .testTarget(name: "ICloudExporterCoreTests", dependencies: ["ICloudExporterCore"], exclude: ["Golden"], linkerSettings: [.linkedLibrary("sqlite3")])
     ]
 )

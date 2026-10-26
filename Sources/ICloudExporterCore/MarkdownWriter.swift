@@ -4,18 +4,24 @@ import CryptoKit
 public struct ExportDocument {
     public var path: String
     public var content: String
-    public var source: ExportSource
+    /// A source, or another archive page group such as `timeline` (see `ExportStore`).
+    public var group: String
+    public var source: ExportSource? { ExportSource(rawValue: group) }
+
+    public init(path: String, content: String, source: ExportSource) { self.init(path: path, content: content, group: source.rawValue) }
+    public init(path: String, content: String, group: String) { self.path = path; self.content = content; self.group = group }
 }
 
 public enum MarkdownWriter {
     public static func timestamp(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
 
-    static func yaml(_ value: String) -> String {
+    // `yaml`, `line`, `safeComponent`, `digest`, `messageBody` and the path helpers are shared with the archive views.
+    internal static func yaml(_ value: String) -> String {
         // JSON double-quoted strings are valid YAML scalars, including embedded newlines.
         String(data: try! JSONEncoder().encode(value), encoding: .utf8)!
     }
 
-    static func line(_ value: String) -> String {
+    internal static func line(_ value: String) -> String {
         value.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
     }
 
@@ -34,6 +40,14 @@ public enum MarkdownWriter {
 
     public static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
+    /// `<title>--<16 hex of the id's digest>`, so renames keep distinct ids apart.
+    internal static func hashedName(_ title: String, id: String) -> String { safeComponent(title) + "--" + digest(Data(id.utf8)).prefix(16) }
+
+    internal static func notePath(_ note: NoteRecord) -> String {
+        let folders = note.folder.split(separator: "/").map { safeComponent(String($0)) }
+        return (["Notes", safeComponent(note.account)] + folders + [hashedName(note.title, id: note.id) + ".md"]).joined(separator: "/")
+    }
+
     public static func documents(snapshot: ExportSnapshot, config: Config, now: Date) throws -> [ExportDocument] {
         var documents: [ExportDocument] = []
         if config.sources.contains(.notes) {
@@ -41,8 +55,7 @@ public enum MarkdownWriter {
             // Locked notes are archive stubs without a body; `export` has always skipped them.
             for note in snapshot.notes.sorted(by: { $0.id < $1.id }) where note.isLocked != true {
                 guard !note.id.isEmpty, ids.insert(note.id).inserted else { throw ExportError.message("Notes returned a missing or duplicate identifier; export stopped.") }
-                let folders = note.folder.split(separator: "/").map { safeComponent(String($0)) }
-                let path = (["Notes", safeComponent(note.account)] + folders + [safeComponent(note.title) + "--" + digest(Data(note.id.utf8)).prefix(16) + ".md"]).joined(separator: "/")
+                let path = notePath(note)
                 var meta = ["---", "apple_id: \(yaml(note.id))", "account: \(yaml(note.account))", "folder: \(yaml(note.folder))"]
                 if let created = note.created { meta.append("created: \(yaml(timestamp(created)))") }
                 if let modified = note.modified { meta.append("modified: \(yaml(timestamp(modified)))") }
@@ -65,7 +78,7 @@ public enum MarkdownWriter {
             var ids = Set<String>()
             for chat in snapshot.chats.sorted(by: { $0.id < $1.id }) {
                 guard !chat.id.isEmpty, ids.insert(chat.id).inserted else { throw ExportError.message("WhatsApp returned a missing or duplicate identifier; export stopped.") }
-                let path = [ExportSource.whatsapp.directoryName, safeComponent(chat.title) + "--" + digest(Data(chat.id.utf8)).prefix(16) + ".md"].joined(separator: "/")
+                let path = [ExportSource.whatsapp.directoryName, hashedName(chat.title, id: chat.id) + ".md"].joined(separator: "/")
                 let meta = ["---", "chat_id: \(yaml(chat.id))", "title: \(yaml(chat.title))", "kind: \(yaml(chat.kind))", "jid: \(yaml(chat.jid))", "---"]
                 documents.append(ExportDocument(path: path, content: chatMarkdown(chat, meta: meta), source: .whatsapp))
             }
@@ -119,7 +132,7 @@ public enum MarkdownWriter {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    static func messageBody(_ message: WhatsAppMessageRecord) -> String? {
+    internal static func messageBody(_ message: WhatsAppMessageRecord) -> String? {
         let caption = message.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let placeholder = message.placeholder, !placeholder.isEmpty {
             return caption.isEmpty ? "[\(placeholder)]" : "[\(placeholder)] \(caption)"
