@@ -20,7 +20,7 @@ public enum ExportError: LocalizedError {
     public var errorDescription: String? { switch self { case .message(let value): return value } }
 }
 
-public struct NoteRecord: Codable, Equatable {
+public struct NoteRecord: Codable {
     public var id, title, account, folder: String
     public var created, modified: Date?
     public var bodyHTML: String
@@ -30,7 +30,7 @@ public struct NoteRecord: Codable, Equatable {
     }
 }
 
-public struct ReminderRecord: Codable, Equatable {
+public struct ReminderRecord: Codable {
     public var id, title, list: String
     public var notes: String?
     public var isCompleted: Bool
@@ -46,7 +46,7 @@ public struct ReminderRecord: Codable, Equatable {
     }
 }
 
-public struct CalendarRecord: Codable, Equatable {
+public struct CalendarRecord: Codable {
     public var id, title, calendar: String
     public var start, end: Date
     public var isAllDay: Bool
@@ -60,7 +60,7 @@ public struct CalendarRecord: Codable, Equatable {
     }
 }
 
-public struct WhatsAppMessageRecord: Codable, Equatable {
+public struct WhatsAppMessageRecord: Codable {
     public var id, sender: String
     public var timestamp: Date
     public var fromMe: Bool
@@ -72,7 +72,7 @@ public struct WhatsAppMessageRecord: Codable, Equatable {
     }
 }
 
-public struct WhatsAppChatRecord: Codable, Equatable {
+public struct WhatsAppChatRecord: Codable {
     public var id, title, kind, jid: String
     public var messages: [WhatsAppMessageRecord]
     public init(id: String, title: String, kind: String, jid: String, messages: [WhatsAppMessageRecord]) {

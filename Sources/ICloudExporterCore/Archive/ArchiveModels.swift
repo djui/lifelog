@@ -28,7 +28,7 @@ public struct ItemFlags: Codable, Equatable {
     public init(edited: Bool = false, rescheduledFrom: String? = nil) { self.edited = edited; self.rescheduledFrom = rescheduledFrom }
 }
 
-public struct WhatsAppArchiveMessage: Codable, Equatable {
+public struct WhatsAppArchiveMessage: Codable {
     public var chatJID, chatTitle, chatKind: String
     public var message: WhatsAppMessageRecord
     public init(chatJID: String, chatTitle: String, chatKind: String, message: WhatsAppMessageRecord) {
@@ -36,7 +36,7 @@ public struct WhatsAppArchiveMessage: Codable, Equatable {
     }
 }
 
-public enum ArchivePayload: Equatable {
+public enum ArchivePayload {
     case note(NoteRecord), reminder(ReminderRecord), event(CalendarRecord), message(WhatsAppArchiveMessage)
 
     public var source: ArchiveSource {
@@ -46,6 +46,13 @@ public enum ArchivePayload: Equatable {
         case .event: return .calendar
         case .message: return .whatsapp
         }
+    }
+}
+
+// The records belong to the readers and stay plain Codable, so equality compares the encoded form.
+extension ArchivePayload: Equatable {
+    public static func == (a: ArchivePayload, b: ArchivePayload) -> Bool {
+        (try? JSONLines.encoder.encode(a)) == (try? JSONLines.encoder.encode(b))
     }
 }
 
