@@ -66,6 +66,23 @@ final class WhatsAppExporterTests: XCTestCase {
         XCTAssertEqual(result.records[0].messages.map(\.text), [nil, "Look at this"])
     }
 
+    func testLinkAndOtherTextTypesAreExported() throws {
+        let source = try fixture()
+        let at = now.addingTimeInterval(-60)
+        var sql = schema
+        sql += chat(id: 1, name: "Links only", last: at, text: nil)
+        sql += message(id: 1, chat: 1, at: at, text: "https://example.com", type: 7)
+        sql += message(id: 2, chat: 1, at: at.addingTimeInterval(1), text: "poll question", type: 41)
+        sql += message(id: 3, chat: 1, at: at.addingTimeInterval(2), text: nil, type: 43)
+        sql += message(id: 4, chat: 1, at: at.addingTimeInterval(3), text: "deleted stub", type: 14)
+        try exec(source.appendingPathComponent("ChatStorage.sqlite"), sql)
+
+        let result = try WhatsAppExporter.fetch(now: now, pastDays: 30, sourceDirectory: source)
+        XCTAssertEqual(result.records.map(\.title), ["Links only"])
+        XCTAssertEqual(result.records[0].messages.map(\.text), ["https://example.com", "poll question"])
+        XCTAssertEqual(result.records[0].messages.map(\.placeholder), [nil, nil])
+    }
+
     func testResolvesContactAndGroupSenders() throws {
         let source = try fixture()
         let at = now.addingTimeInterval(-120)
