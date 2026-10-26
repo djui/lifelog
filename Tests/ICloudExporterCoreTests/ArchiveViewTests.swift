@@ -193,6 +193,9 @@ final class ArchiveViewTests: XCTestCase {
         let root = try temporaryDirectory()
         try await archive(root)
         let incremental = try pages(root)
+        // Plus the viewer under `_viewer/` (ViewerDataTests).
+        let files = incremental.count + FileManager.default.enumerator(atPath: root.appendingPathComponent(ViewerData.folder).path)!
+            .compactMap { $0 as? String }.filter { $0.contains(".") }.count
 
         // A second folder with only the ledger and run log, as if every page had been deleted. The rebuilding Mac is in
         // yet another zone: lifecycle times come from the zones in the run log, so only "Updated" could differ.
@@ -202,14 +205,14 @@ final class ArchiveViewTests: XCTestCase {
         let ledger = Ledger(root: copy, host: "rebuild")
         let summary = try Archiver.rebuild(ledger, runLog: RunLog(root: copy, host: "rebuild"), index: try ArchiveIndex.load(ledger, cacheRoot: nil),
                                            now: runs[2].at, timeZone: Self.newYork)
-        XCTAssertEqual(summary.written, incremental.count)
+        XCTAssertEqual(summary.written, files)
         XCTAssertEqual(try pages(copy), incremental)
 
         // Rebuilding in place rewrites nothing.
         let inPlace = Ledger(root: root, host: "rebuild")
         let again = try Archiver.rebuild(inPlace, runLog: RunLog(root: root, host: "rebuild"), index: try ArchiveIndex.load(inPlace, cacheRoot: nil),
                                          now: runs[2].at, timeZone: Self.newYork)
-        XCTAssertEqual([again.written, again.removed, again.unchanged], [0, 0, incremental.count])
+        XCTAssertEqual([again.written, again.removed, again.unchanged], [0, 0, files])
     }
 
     /// The CI smoke test: `rebuild` right after `archive --demo` writes nothing. Real clocks have sub-millisecond parts
@@ -263,9 +266,9 @@ final class ArchiveViewTests: XCTestCase {
         XCTAssertFalse(after.values.contains { $0.contains("anna--") }, "no page links to the old folder")
         XCTAssertLessThan(summary.pages.written + summary.pages.unchanged, after.count, "untouched pages are not rendered")
 
-        // A run with nothing new renders only `_index.md`.
+        // A run with nothing new renders only `_index.md`, plus the viewer's static app and manifest.
         let quiet = try await archiver(root, zone: Self.newYork).run([], now: runs[2].at + 600)
-        XCTAssertEqual(quiet.pages.written + quiet.pages.unchanged, 1)
+        XCTAssertEqual(quiet.pages.written + quiet.pages.unchanged, 1 + ViewerData.assets.count + 1)
         XCTAssertGreaterThan(total, 1)
     }
 

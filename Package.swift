@@ -8,7 +8,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "icloud-exporter", targets: ["ICloudExporter"])],
     targets: [
-        .target(name: "ICloudExporterCore", resources: [.process("Resources")], linkerSettings: [.linkedLibrary("sqlite3")]),
+        .target(name: "ICloudExporterCore", resources: [.process("Resources/notes.js"), .copy("Resources/viewer")], linkerSettings: [.linkedLibrary("sqlite3")]),
         .executableTarget(name: "ICloudExporter", dependencies: ["ICloudExporterCore"], linkerSettings: [
             .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", root + "/Support/Info.plist"])
         ]),

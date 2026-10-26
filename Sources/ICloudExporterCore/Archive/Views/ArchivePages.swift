@@ -78,6 +78,8 @@ struct Page {
     var keys: Set<ItemKey>
     /// Rendered on every run, such as `_index.md`.
     var always = false
+    /// Viewer month chunks: the source whose ledger history they show (`Viewer.prepare`).
+    var history: ArchiveSource?
     var render: () -> String
 }
 
@@ -91,11 +93,12 @@ struct Home: Hashable {
 }
 
 public enum ArchivePages {
-    static func pages(_ context: ViewContext) -> [Page] {
+    static func pages(_ context: ViewContext, viewer: Viewer? = nil) -> [Page] {
         var pages = WhatsAppView.pages(context) + CalendarView.pages(context) + RemindersView.pages(context) + NotesView.pages(context)
             + AIChatView.pages(context)
         pages += TimelineView.pages(context) + DisappearedView.pages(context)
         pages.append(IndexView.page(context, paths: Set(pages.map(\.path))))
+        if let viewer { pages += ViewerData.pages(context, viewer: viewer) }
         return pages
     }
 
@@ -111,9 +114,9 @@ public enum ArchivePages {
 
     /// Writes the pages. With `touched`, only pages that show a touched item now or showed one in `before` are rendered,
     /// plus pages the manifest does not own yet; the rest are kept as they are. Without it every page is rendered (`rebuild`).
-    /// Pages that are no longer produced are removed.
-    public static func write(_ context: ViewContext, to store: ExportStore, before: ArchiveIndex? = nil, touched: Set<ItemKey>? = nil) throws -> ExportSummary {
-        let pages = pages(context)
+    /// Pages that are no longer produced are removed, so without a `viewer` an earlier viewer is removed too.
+    public static func write(_ context: ViewContext, to store: ExportStore, before: ArchiveIndex? = nil, touched: Set<ItemKey>? = nil, viewer: Viewer? = nil) throws -> ExportSummary {
+        let pages = pages(context, viewer: viewer)
         guard Set(pages.map(\.path)).count == pages.count else { throw ExportError.message("Archive page paths collide; no pages were written.") }
         var selected = pages
         if let touched {
@@ -123,10 +126,11 @@ public enum ArchivePages {
             if let before {
                 let old = ViewContext(index: before, records: context.records, now: context.now, timeZone: context.timeZone, demo: context.demo, health: context.health)
                 touched.formUnion(renamedChats(old, context))
-                stale = Set(Self.pages(old).filter { !$0.keys.isDisjoint(with: touched) }.map(\.path))
+                stale = Set(Self.pages(old, viewer: viewer).filter { !$0.keys.isDisjoint(with: touched) }.map(\.path))
             }
             selected = pages.filter { $0.always || !managed.contains($0.path) || stale.contains($0.path) || !$0.keys.isDisjoint(with: touched) }
         }
+        try viewer?.prepare(selected)
         let rendered = Set(selected.map(\.path))
         let documents = selected.map { ExportDocument(path: $0.path, content: $0.render(), group: $0.group) }
         return try store.writePages(documents, keeping: Set(pages.map(\.path)).subtracting(rendered), demo: context.demo)
@@ -177,7 +181,9 @@ public enum ArchivePages {
     /// Deleted items are struck through; expired and revoked ones keep their text readable (decision 2).
     static func struck(_ item: ArchivedItem) -> Bool { item.state == .deleted || item.state == .trashed }
 
-    static func gone(_ item: ArchivedItem) -> Bool { item.state.isTombstone || item.state == .revoked || item.state == .trashed }
+    static func gone(_ item: ArchivedItem) -> Bool { gone(item.state) }
+
+    static func gone(_ state: LifecycleState) -> Bool { state.isTombstone || state == .revoked || state == .trashed }
 
     /// Inline state labels, such as `deleted 2026-10-20, last seen 2026-10-19`.
     static func badges(_ item: ArchivedItem, _ context: ViewContext) -> [String] {

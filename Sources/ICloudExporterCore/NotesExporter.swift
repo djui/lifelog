@@ -25,17 +25,22 @@ public enum NotesExportError: Error, LocalizedError {
 public enum NotesExporter {
     static let resourceBundleName = "ICloudExporter_ICloudExporterCore.bundle"
 
-    static var scriptURL: URL? {
+    static var scriptURL: URL? { resourceURL("notes.js") }
+
+    /// A file in the resource bundle, also when the binary runs from the packaged app, where `Bundle.module` looks in the wrong place.
+    static func resourceURL(_ path: String) -> URL? {
         let roots = [
             Bundle.main.resourceURL?.appendingPathComponent(resourceBundleName),
             Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(resourceBundleName)"),
             Bundle.main.bundleURL.appendingPathComponent(resourceBundleName)
         ]
+        // A bundle with a copied folder (`viewer/`) is a structured bundle with `Contents/Resources`; a flat one has none.
         for root in roots.compactMap({ $0 }) {
-            let script = root.appendingPathComponent("notes.js")
-            if FileManager.default.isReadableFile(atPath: script.path) { return script }
+            for file in [root.appendingPathComponent("Contents/Resources/\(path)"), root.appendingPathComponent(path)] where FileManager.default.isReadableFile(atPath: file.path) {
+                return file
+            }
         }
-        return Bundle.module.url(forResource: "notes", withExtension: "js")
+        return Bundle.module.resourceURL.map { $0.appendingPathComponent(path) }.flatMap { FileManager.default.isReadableFile(atPath: $0.path) ? $0 : nil }
     }
     static let fetchTimeout: TimeInterval = 15 * 60
 

@@ -111,6 +111,8 @@ public final class Archiver {
     let timeZone: TimeZone
     /// Warnings for the "Health" section of `_index.md`, from the run log after the run (phase 6).
     public var health: (_ records: [RunRecord], _ now: Date) -> [String] = { _, _ in [] }
+    /// Writes the HTML viewer under `_viewer/` after the pages (`--no-viewer` turns it off and removes an earlier one).
+    public var viewer = true
 
     public init(ledger: Ledger, runLog: RunLog, index: ArchiveIndex, options: ArchiveOptions, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot, timeZone: TimeZone = .current) {
         self.ledger = ledger; self.runLog = runLog; self.index = index; self.options = options; self.cacheRoot = cacheRoot; self.timeZone = timeZone
@@ -181,7 +183,8 @@ public final class Archiver {
         if cacheValid { index.save(ledger, cacheRoot: cacheRoot) }
         // Only pages showing an item this run touched are rendered; the rest stay as they are.
         let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health(records, now))
-        do { summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: before, touched: touched) }
+        do { summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: before, touched: touched,
+                                                       viewer: viewer ? Viewer(ledger: ledger) : nil) }
         catch { summary.pageError = error.localizedDescription }
         return summary
     }
@@ -207,10 +210,11 @@ public final class Archiver {
     }
 
     /// Regenerates every page from the ledger. Pages that are no longer produced are removed; unchanged ones are not rewritten.
-    public static func rebuild(_ ledger: Ledger, runLog: RunLog, index: ArchiveIndex, now: Date, timeZone: TimeZone = .current, health: [String] = []) throws -> ExportSummary {
+    public static func rebuild(_ ledger: Ledger, runLog: RunLog, index: ArchiveIndex, now: Date, timeZone: TimeZone = .current, health: [String] = [],
+                               viewer: Bool = true) throws -> ExportSummary {
         let records = try runLog.read().records
         let demo = records.contains { $0.mode == ReadMode.demo.rawValue }
         let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health)
-        return try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive))
+        return try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), viewer: viewer ? Viewer(ledger: ledger) : nil)
     }
 }
