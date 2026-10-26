@@ -113,8 +113,46 @@ public struct WhatsAppChatRecord: Codable {
     }
 }
 
+/// One message of a ChatGPT, Claude or Claude Code conversation.
+public struct AIChatMessage: Codable, Equatable {
+    public var id: String?
+    /// `user`, `assistant`, `system` or `tool`.
+    public var role: String
+    public var timestamp: Date?
+    /// Plain text; tool calls, tool output and hidden reasoning are one-line placeholders such as `[tool call: Bash, 120 bytes]`.
+    public var text: String
+    /// Attachments are not copied, only named, such as `[attachment: report.pdf, 2048 bytes]`.
+    public var attachments: [String]
+    public var model: String?
+    public init(id: String? = nil, role: String, timestamp: Date?, text: String, attachments: [String] = [], model: String? = nil) {
+        self.id = id; self.role = role; self.timestamp = timestamp; self.text = text
+        self.attachments = attachments; self.model = model
+    }
+}
+
+public struct AIChatRecord: Codable, Equatable {
+    public var id, title: String
+    public var created, updated: Date?
+    public var model, project: String?
+    public var messages: [AIChatMessage]
+    /// ChatGPT keeps edits and regenerations as a tree. Only the current branch is in `messages`;
+    /// this counts the messages on the other branches.
+    public var otherBranchMessages: Int?
+    public init(id: String, title: String, created: Date?, updated: Date?, model: String? = nil, project: String? = nil, messages: [AIChatMessage],
+                otherBranchMessages: Int? = nil) {
+        self.id = id; self.title = title; self.created = created; self.updated = updated
+        self.model = model; self.project = project; self.messages = messages
+        self.otherBranchMessages = otherBranchMessages
+    }
+}
+
 public enum ExportSource: String, Codable, CaseIterable {
     case notes, reminders, calendar, whatsapp
+    /// Archive-only: `export` neither accepts nor reads these.
+    case chatgpt, claude, claudecode
+
+    /// The sources `export` mirrors.
+    public static let exportable: [ExportSource] = [.notes, .reminders, .calendar, .whatsapp]
 
     public var directoryName: String {
         switch self {
@@ -122,6 +160,9 @@ public enum ExportSource: String, Codable, CaseIterable {
         case .reminders: return "Reminders"
         case .calendar: return "Calendar"
         case .whatsapp: return "WhatsApp"
+        case .chatgpt: return "ChatGPT"
+        case .claude: return "Claude"
+        case .claudecode: return "Claude Code"
         }
     }
 

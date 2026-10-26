@@ -95,7 +95,7 @@ final class LedgerTests: XCTestCase {
         data.append(Data("not json\n".utf8))
         try data.write(to: file)
         try Data("x".utf8).write(to: folder.appendingPathComponent("2026-09.mac1 (1).jsonl"))
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".archive/ledger/chatgpt"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".archive/ledger/myspace"), withIntermediateDirectories: true)
 
         let contents = try ledger.read()
         XCTAssertEqual(contents.events.map(\.key.id), ["n1"])
@@ -221,7 +221,7 @@ final class ConfigTests: XCTestCase {
     func testExportDefaultsUnchanged() throws {
         let config = try Config(arguments: ["export", "--output", "/tmp/x"])
         XCTAssertEqual(config.command, .export)
-        XCTAssertEqual(config.sources, Set(ExportSource.allCases))
+        XCTAssertEqual(config.sources, Set(ExportSource.exportable))
         XCTAssertEqual([config.pastDays, config.futureDays, config.completedDays, config.whatsappChats], [365, 365, 30, 20])
     }
 

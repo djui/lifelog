@@ -7,7 +7,7 @@ public enum Command: String, CaseIterable {
 public struct Config {
     public var command: Command = .export
     public var output: URL
-    public var sources: Set<ExportSource> = Set(ExportSource.allCases)
+    public var sources: Set<ExportSource> = Set(ExportSource.exportable)
     public var pastDays = 365
     public var futureDays = 365
     public var completedDays = 30
@@ -47,9 +47,10 @@ public struct Config {
             switch option {
             case "--output": outputPath = value
             case "--sources":
+                let allowed = command == .export ? ExportSource.exportable : ExportSource.allCases
                 let names = value.split(separator: ",", omittingEmptySubsequences: false)
-                let selected = names.compactMap { ExportSource(rawValue: String($0)) }
-                guard selected.count == names.count, !selected.isEmpty else { throw ExportError.message("Sources must be a comma-separated list of \(ExportSource.allCases.map(\.rawValue).joined(separator: ",")).") }
+                let selected = names.compactMap { ExportSource(rawValue: String($0)) }.filter(allowed.contains)
+                guard selected.count == names.count, !selected.isEmpty else { throw ExportError.message("Sources must be a comma-separated list of \(allowed.map(\.rawValue).joined(separator: ",")).") }
                 sources = Set(selected)
             case "--backfill-since":
                 guard let date = Self.civilDate(value) else { throw ExportError.message("--backfill-since must be a date as YYYY-MM-DD.") }
