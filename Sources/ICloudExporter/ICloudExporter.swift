@@ -20,7 +20,7 @@ struct ICloudExporter {
             let config = try Config(arguments: arguments)
             switch config.command {
             case .export: try await runExport(config)
-            case .archive: try runArchive(config)
+            case .archive: try await runArchive(config)
             case .rebuild, .verify: throw ExportError.message("'\(config.command.rawValue)' is not available yet.")
             }
         } catch {
@@ -71,18 +71,53 @@ struct ICloudExporter {
         }
     }
 
-    /// Phase 1 shell: claims the archive folder and folds the ledger, but captures nothing yet.
-    static func runArchive(_ config: Config) throws {
+    @MainActor
+    static func runArchive(_ config: Config) async throws {
+        let now = Date()
         let root = config.output.resolvingSymlinksInPath().standardizedFileURL
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let lock = try ArchiveLock(root.appendingPathComponent(ArchiveLock.name), owner: "archive run")
         defer { lock.release() }
         try Ledger.checkFolder(root)
-        let ledger = Ledger(root: root, host: try HostID.current())
-        let index = try ArchiveIndex.load(ledger)
+        // The demo touches neither the host id nor the caches, only the output folder.
+        let host = config.demo ? Demo.archiveHost : try HostID.current()
+        let cacheRoot = config.demo ? nil : ArchiveIndex.defaultCacheRoot
+        let ledger = Ledger(root: root, host: host)
+        let index = try ArchiveIndex.load(ledger, cacheRoot: cacheRoot)
         for issue in index.issues { stderr("Warning: \(issue)") }
-        print("Archive holds \(index.items.count) items. Capture is not implemented yet; the ledger was not changed.")
-        print("Output: \(root.path)")
+        let runLog = RunLog(root: root, host: host)
+        if config.demo, try !index.items.isEmpty || !runLog.read().records.isEmpty {
+            throw ExportError.message("The demo needs an empty archive folder.")
+        }
+        let archiver = Archiver(ledger: ledger, runLog: runLog, index: index, options: ArchiveOptions(config), cacheRoot: cacheRoot)
+
+        var summary = ArchiveSummary()
+        if config.demo {
+            ExportLog.info("archiving synthetic demo data")
+            for run in Demo.archiveRuns(now: now) {
+                let one = try await archiver.run(run.readers, now: run.at, demo: true)
+                summary.lines += one.lines
+                summary.failures.merge(one.failures) { $1 }
+            }
+        } else {
+            let selected = ArchiveReaders.order.filter(config.sources.contains)
+            ExportLog.info("starting archive run of \(selected.map(\.rawValue).joined(separator: ", ")) to \(root.path)")
+            let cursorFile = cacheRoot.map { ArchiveIndex.cacheDirectory(for: ledger, in: $0).appendingPathComponent("claudecode-cursors.json") }
+            summary = try await archiver.run(ArchiveReaders.live(config, cursorFile: cursorFile), now: now)
+        }
+
+        for line in summary.lines {
+            let counts = line.counts.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }
+            print("\(line.source.rawValue) (\(line.mode.rawValue)\(line.complete ? "" : ", incomplete")): \(counts.isEmpty ? "no changes" : counts.joined(separator: ", "))")
+        }
+        for line in summary.lines { for warning in line.warnings { stderr("Warning (\(line.source.rawValue)): \(warning)") } }
+        print("Archive run complete: \(summary.added) added, \(summary.changed) changed, \(summary.tombstoned) tombstoned, \(summary.revoked) revoked, \(summary.pending) pending, \(summary.warnings.count) warnings.")
+        print("Archive holds \(archiver.index.items.count) items. Output: \(root.path)")
+        if !summary.failures.isEmpty {
+            for (source, message) in summary.failures.sorted(by: { $0.key.rawValue < $1.key.rawValue }) { stderr("Archive failed (\(source.rawValue)): \(message)") }
+            stderr("Sources that did not archive: \(summary.failures.keys.map { $0.rawValue }.sorted().joined(separator: ", "))")
+            exit(1)
+        }
     }
 
     static func read(_ source: ExportSource, window: (start: Date, end: Date, completedSince: Date), eventKit: EventKitExporter?, config: Config, now: Date) async throws -> ExportSnapshot {

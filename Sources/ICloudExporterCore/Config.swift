@@ -18,11 +18,13 @@ public struct Config {
     public var rescanDays = 100
     public var fullSweepDays = 7
     public var notify = false
+    /// Where ChatGPT and Claude export zips are picked up. Zips stay where they are.
+    public var aiInbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
 
     static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify"], .rebuild: [], .verify: []]
     static let valued: [Command: Set<String>] = [
         .export: ["--output", "--sources", "--past-days", "--future-days", "--completed-days"],
-        .archive: ["--output", "--sources", "--backfill-since", "--rescan-days", "--full-sweep-days"],
+        .archive: ["--output", "--sources", "--backfill-since", "--rescan-days", "--full-sweep-days", "--ai-inbox"],
         .rebuild: ["--output"], .verify: ["--output"],
     ]
 
@@ -46,6 +48,7 @@ public struct Config {
             guard let value = values.next(), !value.hasPrefix("--"), !value.isEmpty else { throw ExportError.message("Missing value for \(option)") }
             switch option {
             case "--output": outputPath = value
+            case "--ai-inbox": aiInbox = URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true).standardizedFileURL
             case "--sources":
                 let allowed = command == .export ? ExportSource.exportable : ExportSource.allCases
                 let names = value.split(separator: ",", omittingEmptySubsequences: false)
@@ -100,8 +103,8 @@ public struct Config {
 
     Commands:
       export      Mirror the sources into Markdown snapshots
-      archive     Keep a lifelong archive that never loses items (in development:
-                  it does not capture anything yet)
+      archive     Keep a lifelong archive that never loses items: deleted, expired
+                  and revoked items are marked, never dropped
       rebuild     Regenerate archive pages from the ledger (not available yet)
       verify      Check the archive ledger (not available yet)
 
@@ -113,10 +116,13 @@ public struct Config {
       --demo                              Export synthetic examples; no local app access
 
     Archive options:
-      --sources notes,reminders,calendar,whatsapp   Sources to archive (default: all)
+      --sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode
+                                          Sources to archive (default: notes,reminders,calendar,whatsapp)
       --backfill-since YYYY-MM-DD         First run reads history back to this date (default: 2000-01-01)
       --rescan-days N                     Recent history re-read on every run (default: 100)
       --full-sweep-days N                 Days between full re-reads (default: 7)
+      --ai-inbox <directory>              Folder with ChatGPT/Claude export zips (default: ~/Downloads);
+                                          each new zip is imported once and left in place
       --notify                            Notify when WhatsApp capture falls behind
       --demo                              Archive synthetic examples; no local app access
 

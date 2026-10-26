@@ -27,3 +27,18 @@ jobs:
           test -s "$output/Calendar/recent-365-days.md"
           test -d "$output/WhatsApp"
           test -n "$(ls "$output/WhatsApp"/*.md 2>/dev/null)"
+      - name: Smoke test archive demo
+        shell: bash
+        run: |
+          output="$RUNNER_TEMP/icloud-exporter-archive-demo"
+          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --demo
+          test -s "$output/_index.md"
+          grep -q "| WhatsApp |" "$output/_index.md"
+          test -n "$(ls "$output/.archive/ledger/whatsapp"/*.jsonl 2>/dev/null)"
+          test -n "$(ls "$output/.archive/runs"/*.jsonl 2>/dev/null)"
+          grep -q '"state":"expired"' "$output"/.archive/ledger/whatsapp/*.jsonl
+          grep -q '"state":"revoked"' "$output"/.archive/ledger/whatsapp/*.jsonl
+          grep -q '"state":"deleted"' "$output"/.archive/ledger/reminders/*.jsonl
+          # A second demo into the same folder is refused, so demo data never mixes with a real archive.
+          if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --demo; then exit 1; fi
+          if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --sources claudecode; then exit 1; fi

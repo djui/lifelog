@@ -66,7 +66,7 @@ public struct ArchiveIndex: Equatable {
     /// The cache never lives in the synced archive folder.
     public static func load(_ ledger: Ledger, cacheRoot: URL? = defaultCacheRoot) throws -> ArchiveIndex {
         let stamps = ledger.stamps()
-        let cacheURL = cacheRoot.map { $0.appendingPathComponent(String(MarkdownWriter.digest(Data(ledger.root.path.utf8)).prefix(16))).appendingPathComponent("index.json") }
+        let cacheURL = cacheRoot.map { cacheFile(for: ledger, in: $0) }
         if let cacheURL, let data = try? Data(contentsOf: cacheURL), let cache = try? JSONLines.decoder.decode(Cache.self, from: data),
            cache.version == Cache.currentVersion, cache.archive == ledger.root.path, cache.files == stamps {
             var index = ArchiveIndex()
@@ -77,17 +77,34 @@ public struct ArchiveIndex: Equatable {
         let contents = try ledger.read()
         var index = fold(contents.events)
         index.issues = contents.issues + index.issues
-        if let cacheURL {
-            let cache = Cache(archive: ledger.root.path, files: stamps, items: index.items.values.sorted { $0.key < $1.key }, issues: index.issues)
-            do {
-                try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONLines.encoder.encode(cache).write(to: cacheURL, options: .atomic)
-            } catch {
-                ExportLog.info("could not write index cache: \(error.localizedDescription)")
-            }
-        }
+        if let cacheRoot { index.save(ledger, cacheRoot: cacheRoot, stamps: stamps) }
         return index
     }
+
+    /// Writes the cache for the ledger as it is on disk now. Call it after appending this index's events,
+    /// so the next run skips the refold. A failed write only costs that refold.
+    public func save(_ ledger: Ledger, cacheRoot: URL? = defaultCacheRoot) {
+        guard let cacheRoot else { return }
+        save(ledger, cacheRoot: cacheRoot, stamps: ledger.stamps())
+    }
+
+    func save(_ ledger: Ledger, cacheRoot: URL, stamps: [String: FileStamp]) {
+        let cacheURL = Self.cacheFile(for: ledger, in: cacheRoot)
+        let cache = Cache(archive: ledger.root.path, files: stamps, items: items.values.sorted { $0.key < $1.key }, issues: issues)
+        do {
+            try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONLines.encoder.encode(cache).write(to: cacheURL, options: .atomic)
+        } catch {
+            ExportLog.info("could not write index cache: \(error.localizedDescription)")
+        }
+    }
+
+    /// Per-archive cache folder under `cacheRoot`, also used for Claude Code read cursors.
+    public static func cacheDirectory(for ledger: Ledger, in cacheRoot: URL) -> URL {
+        cacheRoot.appendingPathComponent(String(MarkdownWriter.digest(Data(ledger.root.path.utf8)).prefix(16)))
+    }
+
+    static func cacheFile(for ledger: Ledger, in cacheRoot: URL) -> URL { cacheDirectory(for: ledger, in: cacheRoot).appendingPathComponent("index.json") }
 
     public static var defaultCacheRoot: URL? {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("com.djui.icloud-exporter")

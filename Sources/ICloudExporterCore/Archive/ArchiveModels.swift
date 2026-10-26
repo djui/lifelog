@@ -43,8 +43,20 @@ public struct WhatsAppArchiveMessage: Codable {
     }
 }
 
+/// One message of a ChatGPT, Claude or Claude Code conversation. Messages, not whole chats, are the
+/// archived items, so a Claude Code session that grows appends small events instead of rewriting itself.
+public struct AIArchiveMessage: Codable {
+    public var source: ArchiveSource
+    public var chatID, chatTitle: String
+    public var project: String?
+    public var message: AIChatMessage
+    public init(source: ArchiveSource, chatID: String, chatTitle: String, project: String? = nil, message: AIChatMessage) {
+        self.source = source; self.chatID = chatID; self.chatTitle = chatTitle; self.project = project; self.message = message
+    }
+}
+
 public enum ArchivePayload {
-    case note(NoteRecord), reminder(ReminderRecord), event(CalendarRecord), message(WhatsAppArchiveMessage)
+    case note(NoteRecord), reminder(ReminderRecord), event(CalendarRecord), message(WhatsAppArchiveMessage), aiMessage(AIArchiveMessage)
 
     public var source: ArchiveSource {
         switch self {
@@ -52,6 +64,7 @@ public enum ArchivePayload {
         case .reminder: return .reminders
         case .event: return .calendar
         case .message: return .whatsapp
+        case .aiMessage(let value): return value.source
         }
     }
 }
@@ -65,7 +78,7 @@ extension ArchivePayload: Equatable {
 
 // Written as {"kind": "note", "note": {...}} so the ledger stays readable without this code.
 extension ArchivePayload: Codable {
-    enum CodingKeys: String, CodingKey { case kind, note, reminder, event, message }
+    enum CodingKeys: String, CodingKey { case kind, note, reminder, event, message, aiMessage }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -74,6 +87,7 @@ extension ArchivePayload: Codable {
         case "reminder": self = .reminder(try c.decode(ReminderRecord.self, forKey: .reminder))
         case "event": self = .event(try c.decode(CalendarRecord.self, forKey: .event))
         case "message": self = .message(try c.decode(WhatsAppArchiveMessage.self, forKey: .message))
+        case "aiMessage": self = .aiMessage(try c.decode(AIArchiveMessage.self, forKey: .aiMessage))
         case let kind: throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: "Unknown payload kind: \(kind)")
         }
     }
@@ -85,6 +99,7 @@ extension ArchivePayload: Codable {
         case .reminder(let value): try c.encode("reminder", forKey: .kind); try c.encode(value, forKey: .reminder)
         case .event(let value): try c.encode("event", forKey: .kind); try c.encode(value, forKey: .event)
         case .message(let value): try c.encode("message", forKey: .kind); try c.encode(value, forKey: .message)
+        case .aiMessage(let value): try c.encode("aiMessage", forKey: .kind); try c.encode(value, forKey: .aiMessage)
         }
     }
 }
