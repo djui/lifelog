@@ -259,11 +259,22 @@ final class ArchiveViewTests: XCTestCase {
 
     func testHealthWarningsAreShownInTheIndex() async throws {
         let root = try temporaryDirectory()
+        try await archive(root, runs: 1)
+        // Three days later only Notes is read: the WhatsApp capture gap shows in the index, as `archive` wires it.
+        let later = runs[0].at + 3 * 86_400
         let archiver = try archiver(root, zone: Self.berlin)
-        archiver.health = { records, _ in ["No complete WhatsApp read in \(records.count) runs"] }
-        _ = try await archiver.run(readers(0), now: runs[0].at)
+        archiver.health = { records, now in Health.report(records, now: now, whatsAppRunning: nil, timeZone: Self.berlin).warnings }
+        _ = try await archiver.run([FakeReader(.notes) { _ in [ArchiveRead(payloads: self.notes(0), scope: .notes)] }], now: later)
         let index = try String(contentsOf: root.appendingPathComponent("_index.md"), encoding: .utf8)
-        XCTAssertTrue(index.contains("## Health\n\n- No complete WhatsApp read in 6 runs\n"), index)
+        XCTAssertTrue(index.contains("## Health\n\n- No complete WhatsApp read for 71 h. Disappearing messages (24 h) sent between 2026-10-24 20:00 and 2026-10-26 19:00 may be lost.\n"), index)
+
+        // `rebuild` takes the same warnings from the run log.
+        let ledger = Ledger(root: root, host: "rebuild"), runLog = RunLog(root: root, host: "rebuild")
+        let warnings = Health.warnings(runLog: runLog, now: later + 3600, whatsAppRunning: nil)
+        XCTAssertFalse(warnings.isEmpty)
+        _ = try Archiver.rebuild(ledger, runLog: runLog, index: try ArchiveIndex.load(ledger, cacheRoot: nil), now: later + 3600, timeZone: Self.berlin, health: warnings)
+        let rebuilt = try String(contentsOf: root.appendingPathComponent("_index.md"), encoding: .utf8)
+        XCTAssertTrue(rebuilt.contains("sent between 2026-10-24 20:00 and 2026-10-26 20:00 may be lost."), rebuilt)
     }
 
     func testArchivePagesAndExportStayApart() throws {
