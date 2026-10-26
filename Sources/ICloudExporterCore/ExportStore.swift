@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 public struct ExportSummary {
     public var written: Int = 0
@@ -39,12 +38,11 @@ public final class ExportStore {
 
     public func write(_ documents: [ExportDocument], sources: Set<ExportSource>, now: Date, demo: Bool, warnings: [ExportSource: [String]]) throws -> ExportSummary {
         try manager.createDirectory(at: root, withIntermediateDirectories: true)
-        let lockURL = try checked(".icloud-exporter.lock")
-        let fd = Darwin.open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
-        guard fd >= 0 else { throw ExportError.message("Cannot open export lock.") }
-        defer { Darwin.close(fd) }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw ExportError.message("Another export is using this output directory.") }
-        defer { flock(fd, LOCK_UN) }
+        let lock = try ArchiveLock(try checked(ArchiveLock.name), owner: "export")
+        defer { lock.release() }
+        guard !manager.fileExists(atPath: root.appendingPathComponent(Ledger.folderName).path) else {
+            throw ExportError.message("Output folder holds a lifelong archive (\(Ledger.folderName)/). Choose a separate folder for the export.")
+        }
 
         let manifestURL = try checked(Self.manifestName)
         let pendingURL = try checked(Self.pendingName)
