@@ -15,6 +15,9 @@ public enum StableKey {
             // Stanza ids are unique per chat and sender only (V1); Z_PK changes when the database is rebuilt.
             let message = value.message
             return "\(value.chatJID)/\(message.fromMe ? 1 : 0)/\(message.stanzaID ?? "pk:\(message.id)")"
+        case .aiMessage(let value):
+            // Messages without an id fall back to their content; `items` disambiguates repeats.
+            return "\(value.chatID)/\(value.message.id ?? "h:\(contentHash(of: payload).prefix(16))")"
         }
     }
 
@@ -24,6 +27,7 @@ public enum StableKey {
         case .reminder(let reminder): return reminder.id
         case .event(let event): return event.id
         case .message(let value): return value.message.id
+        case .aiMessage(let value): return value.message.id ?? id(of: payload)
         }
     }
 
@@ -34,6 +38,7 @@ public enum StableKey {
         case .reminder(let reminder): return reminder.list
         case .event(let event): return event.calendar
         case .message(let value): return value.chatJID
+        case .aiMessage(let value): return value.chatID
         }
     }
 
@@ -46,6 +51,7 @@ public enum StableKey {
         case .reminder(let reminder): fields = [reminder.title, reminder.notes, reminder.url, reminder.due, String(reminder.priority)]
         case .event(let event): fields = [event.title, event.location, event.notes, event.url, event.isAllDay ? "all-day" : "timed"]
         case .message(let value): fields = [value.message.sender, value.message.text, value.message.placeholder]
+        case .aiMessage(let value): fields = [value.message.role, value.message.text] + value.message.attachments
         }
         return MarkdownWriter.digest(Data(fields.map { normalize($0 ?? "") }.joined(separator: "\u{1F}").utf8))
     }
@@ -59,6 +65,8 @@ public enum StableKey {
         case .event(let event):
             return [event.calendar, time(event.start), time(event.end), event.startDate ?? "", event.endDate ?? "", event.timeZone ?? "", event.status ?? "", event.participation ?? ""]
         case .message(let value): return [String(value.message.isRevoked ?? false)]
+        // Titles change as a chat goes on; that is not a change of each message.
+        case .aiMessage: return []
         }
     }
 

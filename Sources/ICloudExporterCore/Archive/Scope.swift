@@ -53,6 +53,8 @@ extension ArchivedItem {
         case .reminder(let reminder): return reminder.isCompleted ? reminder.completionDate : nil
         case .event(let event): return event.start
         case .message(let value): return value.message.timestamp
+        // An AI export is a complete read of the service; Claude Code reads only add.
+        case .aiMessage: return nil
         }
     }
 }
