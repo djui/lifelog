@@ -7,7 +7,7 @@ struct ICloudExporter {
     @MainActor
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        if arguments.isEmpty || arguments == ["--help"] || arguments == ["help"] || arguments == ["export", "--help"] {
+        if arguments.isEmpty || arguments == ["--help"] || arguments == ["help"] || (arguments.count == 2 && arguments[1] == "--help" && Command(rawValue: arguments[0]) != nil) {
             print(Config.help)
             return
         }
@@ -15,50 +15,74 @@ struct ICloudExporter {
         ExportLog.handler = { message in
             FileHandle.standardError.write(Data(("icloud-exporter: \(message)\n").utf8))
         }
+        let label = Command(rawValue: arguments[0]).map { $0.rawValue.prefix(1).uppercased() + $0.rawValue.dropFirst() } ?? "Export"
         do {
             let config = try Config(arguments: arguments)
-            let now = Date()
-            let window = config.window(now: now)
-            let selected = ExportSource.allCases.filter { config.sources.contains($0) }
-            ExportLog.info("starting \(config.demo ? "demo" : "live") export of \(selected.map(\.rawValue).joined(separator: ", ")) to \(config.output.path)")
-            let store = ExportStore(output: config.output)
-            var summary = ExportSummary()
-            var failures: [ExportSource: String] = [:]
-            let demo = config.demo ? Demo.snapshot(now: now) : nil
-            if demo != nil { ExportLog.info("using synthetic demo data") }
-            let needsEventKit = demo == nil && (config.sources.contains(.reminders) || config.sources.contains(.calendar))
-            let eventKit = needsEventKit ? EventKitExporter() : nil
-
-            // Reminders and Calendar finish quickly; WhatsApp is a local SQLite copy; Notes can take minutes.
-            for source in [ExportSource.reminders, .calendar, .whatsapp, .notes] where config.sources.contains(source) {
-                do {
-                    var snapshot = demo ?? ExportSnapshot()
-                    if demo == nil {
-                        snapshot = try await read(source, window: window, eventKit: eventKit, config: config, now: now)
-                    }
-                    var one = config
-                    one.sources = [source]
-                    ExportLog.info("rendering \(source.rawValue)")
-                    let documents = try MarkdownWriter.documents(snapshot: snapshot, config: one, now: now)
-                    summary.merge(try store.write(documents, sources: [source], now: now, demo: config.demo, warnings: snapshot.warnings))
-                    for warning in snapshot.warnings[source] ?? [] { stderr("Warning (\(source.rawValue)): \(warning)") }
-                } catch {
-                    failures[source] = error.localizedDescription
-                    stderr("Export failed (\(source.rawValue)): \(error.localizedDescription)")
-                }
-            }
-
-            print("Export complete: \(summary.written) files written, \(summary.unchanged) unchanged, \(summary.removed) removed.")
-            print("Output: \(config.output.path)")
-            if !failures.isEmpty {
-                let names = failures.keys.map(\.rawValue).sorted().joined(separator: ", ")
-                stderr("Sources that did not export: \(names)")
-                exit(1)
+            switch config.command {
+            case .export: try await runExport(config)
+            case .archive: try runArchive(config)
+            case .rebuild, .verify: throw ExportError.message("'\(config.command.rawValue)' is not available yet.")
             }
         } catch {
-            stderr("Export failed: \(error.localizedDescription)")
+            stderr("\(label) failed: \(error.localizedDescription)")
             exit(1)
         }
+    }
+
+    @MainActor
+    static func runExport(_ config: Config) async throws {
+        let now = Date()
+        let window = config.window(now: now)
+        let selected = ExportSource.allCases.filter { config.sources.contains($0) }
+        ExportLog.info("starting \(config.demo ? "demo" : "live") export of \(selected.map(\.rawValue).joined(separator: ", ")) to \(config.output.path)")
+        let store = ExportStore(output: config.output)
+        var summary = ExportSummary()
+        var failures: [ExportSource: String] = [:]
+        let demo = config.demo ? Demo.snapshot(now: now) : nil
+        if demo != nil { ExportLog.info("using synthetic demo data") }
+        let needsEventKit = demo == nil && (config.sources.contains(.reminders) || config.sources.contains(.calendar))
+        let eventKit = needsEventKit ? EventKitExporter() : nil
+
+        // Reminders and Calendar finish quickly; WhatsApp is a local SQLite copy; Notes can take minutes.
+        for source in [ExportSource.reminders, .calendar, .whatsapp, .notes] where config.sources.contains(source) {
+            do {
+                var snapshot = demo ?? ExportSnapshot()
+                if demo == nil {
+                    snapshot = try await read(source, window: window, eventKit: eventKit, config: config, now: now)
+                }
+                var one = config
+                one.sources = [source]
+                ExportLog.info("rendering \(source.rawValue)")
+                let documents = try MarkdownWriter.documents(snapshot: snapshot, config: one, now: now)
+                summary.merge(try store.write(documents, sources: [source], now: now, demo: config.demo, warnings: snapshot.warnings))
+                for warning in snapshot.warnings[source] ?? [] { stderr("Warning (\(source.rawValue)): \(warning)") }
+            } catch {
+                failures[source] = error.localizedDescription
+                stderr("Export failed (\(source.rawValue)): \(error.localizedDescription)")
+            }
+        }
+
+        print("Export complete: \(summary.written) files written, \(summary.unchanged) unchanged, \(summary.removed) removed.")
+        print("Output: \(config.output.path)")
+        if !failures.isEmpty {
+            let names = failures.keys.map(\.rawValue).sorted().joined(separator: ", ")
+            stderr("Sources that did not export: \(names)")
+            exit(1)
+        }
+    }
+
+    /// Phase 1 shell: claims the archive folder and folds the ledger, but captures nothing yet.
+    static func runArchive(_ config: Config) throws {
+        let root = config.output.resolvingSymlinksInPath().standardizedFileURL
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let lock = try ArchiveLock(root.appendingPathComponent(ArchiveLock.name), owner: "archive run")
+        defer { lock.release() }
+        try Ledger.checkFolder(root)
+        let ledger = Ledger(root: root, host: try HostID.current())
+        let index = try ArchiveIndex.load(ledger)
+        for issue in index.issues { stderr("Warning: \(issue)") }
+        print("Archive holds \(index.items.count) items. Capture is not implemented yet; the ledger was not changed.")
+        print("Output: \(root.path)")
     }
 
     static func read(_ source: ExportSource, window: (start: Date, end: Date, completedSince: Date), eventKit: EventKitExporter?, config: Config, now: Date) async throws -> ExportSnapshot {
