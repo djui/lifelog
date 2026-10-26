@@ -22,7 +22,7 @@ public struct ArchiveIndex: Equatable {
             guard var item = event.item, item.key == key, item.payload.source == key.source else { return issue(event, "missing or mismatched item") }
             if let old = items[key] {
                 item.state = old.state; item.stateSince = old.stateSince; item.reason = old.reason
-                item.missingSince = old.missingSince
+                item.missingSince = old.missingSince; item.missingReason = old.missingReason
                 item.firstSeen = [old.firstSeen, item.firstSeen].compactMap { $0 }.min()
             } else if item.firstSeen == nil {
                 item.firstSeen = event.at
@@ -33,7 +33,7 @@ public struct ArchiveIndex: Equatable {
             guard let state = event.state else { return issue(event, "missing state") }
             guard var item = items[key] else { return issue(event, "unknown item") }
             if item.state != state { item.state = state; item.stateSince = event.at; item.reason = event.reason }
-            item.missingSince = nil
+            item.missingSince = nil; item.missingReason = nil
             items[key] = item
         case .rekeyed:
             guard let newKey = event.newKey, newKey.source == key.source else { return issue(event, "missing or mismatched new key") }
@@ -51,10 +51,10 @@ public struct ArchiveIndex: Equatable {
             items[newKey] = item
         case .missingPending:
             guard items[key] != nil else { return issue(event, "unknown item") }
-            if items[key]!.missingSince == nil { items[key]!.missingSince = event.at }
+            if items[key]!.missingSince == nil { items[key]!.missingSince = event.at; items[key]!.missingReason = event.reason }
         case .missingCleared:
             guard items[key] != nil else { return issue(event, "unknown item") }
-            items[key]!.missingSince = nil
+            items[key]!.missingSince = nil; items[key]!.missingReason = nil
         }
     }
 
@@ -94,7 +94,7 @@ public struct ArchiveIndex: Equatable {
     }
 
     struct Cache: Codable {
-        static let currentVersion = 1
+        static let currentVersion = 2
         var version = currentVersion
         var archive: String
         var files: [String: FileStamp]

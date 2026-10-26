@@ -4,7 +4,10 @@ public typealias ArchiveSource = ExportSource
 
 /// Lifecycle of an archived item. Items are never removed; they change state.
 public enum LifecycleState: String, Codable, CaseIterable {
-    case active, completed, archived, trashed, deleted, expired, revoked, unknown
+    case active, completed, archived, trashed, locked, deleted, expired, revoked, unknown
+
+    /// Gone from the source or unaccounted for. Only a later sighting changes these.
+    public var isTombstone: Bool { self == .deleted || self == .expired || self == .unknown }
 }
 
 public struct ItemKey: Codable, Hashable, Comparable {
@@ -25,7 +28,11 @@ public struct Partition: Codable, Equatable {
 public struct ItemFlags: Codable, Equatable {
     public var edited: Bool
     public var rescheduledFrom: String?
-    public init(edited: Bool = false, rescheduledFrom: String? = nil) { self.edited = edited; self.rescheduledFrom = rescheduledFrom }
+    /// Calendar status and participation before their latest change (decision 11).
+    public var statusFrom, participationFrom: String?
+    public init(edited: Bool = false, rescheduledFrom: String? = nil, statusFrom: String? = nil, participationFrom: String? = nil) {
+        self.edited = edited; self.rescheduledFrom = rescheduledFrom; self.statusFrom = statusFrom; self.participationFrom = participationFrom
+    }
 }
 
 public struct WhatsAppArchiveMessage: Codable {
@@ -94,14 +101,17 @@ public struct ArchivedItem: Codable, Equatable {
     public var lastSeen: Date?
     /// Set while an in-scope item is missing but not yet confirmed gone.
     public var missingSince: Date?
+    /// Why the item is pending, such as `mass-disappearance` when the circuit breaker held it.
+    public var missingReason: String?
     public var flags: ItemFlags
     public var contentHash: String
     public var payload: ArchivePayload
 
     public init(key: ItemKey, nativeID: String, partition: Partition, state: LifecycleState = .active, stateSince: Date, reason: String? = nil,
-                firstSeen: Date? = nil, lastSeen: Date? = nil, missingSince: Date? = nil, flags: ItemFlags = ItemFlags(), contentHash: String, payload: ArchivePayload) {
+                firstSeen: Date? = nil, lastSeen: Date? = nil, missingSince: Date? = nil, missingReason: String? = nil, flags: ItemFlags = ItemFlags(), contentHash: String, payload: ArchivePayload) {
         self.key = key; self.nativeID = nativeID; self.partition = partition; self.state = state; self.stateSince = stateSince
         self.reason = reason; self.firstSeen = firstSeen; self.lastSeen = lastSeen; self.missingSince = missingSince
+        self.missingReason = missingReason
         self.flags = flags; self.contentHash = contentHash; self.payload = payload
     }
 }
