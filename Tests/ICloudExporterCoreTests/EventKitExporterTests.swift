@@ -58,6 +58,47 @@ final class EventKitExporterTests: XCTestCase {
         XCTAssertThrowsError(try EventKitDates.validateEventRange(from: start, to: Date(timeIntervalSince1970: .infinity)))
     }
 
+    func testEventChunksCoverLongWindowsWithoutGaps() throws {
+        let start = Date(timeIntervalSince1970: 946_684_800)
+        let end = start.addingTimeInterval(10 * 365 * 86_400)
+        let chunks = try EventKitDates.eventChunks(from: start, to: end)
+        XCTAssertEqual(chunks.count, 3)
+        XCTAssertEqual(chunks.first?.from, start)
+        XCTAssertEqual(chunks.last?.to, end)
+        for (previous, next) in zip(chunks, chunks.dropFirst()) {
+            XCTAssertEqual(previous.to, next.from)
+        }
+        for chunk in chunks {
+            XCTAssertNoThrow(try EventKitDates.validateEventRange(from: chunk.from, to: chunk.to))
+        }
+    }
+
+    func testEventChunksKeepShortWindowsWhole() throws {
+        let start = Date(timeIntervalSince1970: 0)
+        let exact = start.addingTimeInterval(1_460 * 86_400)
+        XCTAssertEqual(try EventKitDates.eventChunks(from: start, to: exact).count, 1)
+        XCTAssertEqual(try EventKitDates.eventChunks(from: start, to: exact.addingTimeInterval(1)).count, 2)
+        XCTAssertThrowsError(try EventKitDates.eventChunks(from: start, to: start))
+        XCTAssertThrowsError(try EventKitDates.eventChunks(from: start, to: Date(timeIntervalSince1970: .infinity)))
+    }
+
+    func testMergedDropsEventsRepeatedAcrossChunks() {
+        func event(_ id: String, _ title: String) -> CalendarRecord {
+            CalendarRecord(id: id, title: title, calendar: "Work", start: Date(timeIntervalSince1970: 0),
+                           end: Date(timeIntervalSince1970: 60), isAllDay: false, timeZone: nil, location: nil, notes: nil, url: nil)
+        }
+        let merged = EventKitDates.merged([[event("a", "first"), event("span", "first")], [event("span", "second"), event("b", "second")]])
+        XCTAssertEqual(merged.map(\.id), ["a", "span", "b"])
+        XCTAssertEqual(merged.first { $0.id == "span" }?.title, "first")
+    }
+
+    func testStatusAndParticipationLabels() {
+        XCTAssertEqual(EventKitLabels.status(.canceled), "cancelled")
+        XCTAssertEqual(EventKitLabels.status(.tentative), "tentative")
+        XCTAssertEqual(EventKitLabels.participation(.declined), "declined")
+        XCTAssertEqual(EventKitLabels.participation(.inProcess), "in-process")
+    }
+
     @MainActor
     func testCallbackAcceptsOnlyFirstResult() async throws {
         let value = try await EventKitCallback<Int>.wait(timeoutNanoseconds: 1_000_000_000) { complete in

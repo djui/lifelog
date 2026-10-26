@@ -5,7 +5,6 @@
 function run(argv) {
     var notes = Application("Notes");
     var records = [];
-    var protectedCount = 0;
     var omittedImages = 0;
     var omittedAttachments = 0;
 
@@ -106,8 +105,21 @@ function run(argv) {
                 var id = String(ids[i]);
                 if (!id || seen[id]) throw new Error("NOTES_READ_FAILED");
                 seen[id] = true;
+                var folderID = String(folders[i]);
+                // Locked notes become body-less stubs so a newly locked note does not look deleted.
+                // Their title, dates and folder are readable without unlocking.
                 if (locked[i]) {
-                    protectedCount += 1;
+                    records.push({
+                        id: id,
+                        title: String(titles[i]),
+                        account: accountName,
+                        folder: paths[folderID] || "",
+                        folderID: folderID,
+                        created: dateString(created[i]),
+                        modified: dateString(modified[i]),
+                        bodyHTML: "",
+                        locked: true
+                    });
                     continue;
                 }
                 var media = stripMedia(String(items[i].body()));
@@ -115,10 +127,12 @@ function run(argv) {
                     id: id,
                     title: String(titles[i]),
                     account: accountName,
-                    folder: paths[String(folders[i])] || "",
+                    folder: paths[folderID] || "",
+                    folderID: folderID,
                     created: dateString(created[i]),
                     modified: dateString(modified[i]),
-                    bodyHTML: media.html
+                    bodyHTML: media.html,
+                    locked: false
                 });
                 omittedImages += media.images;
                 omittedAttachments += media.attachments;
@@ -133,10 +147,8 @@ function run(argv) {
     }
 
     progress("encoding " + records.length + " notes");
+    // NotesExporter.decode adds the password-protected warning when it drops locked stubs.
     var warnings = [];
-    if (protectedCount > 0) {
-        warnings.push(String(protectedCount) + " password-protected note(s) were skipped.");
-    }
     if (omittedImages > 0 || omittedAttachments > 0) {
         var parts = [];
         if (omittedImages > 0) parts.push(omittedImages === 1 ? "1 embedded image" : String(omittedImages) + " embedded images");

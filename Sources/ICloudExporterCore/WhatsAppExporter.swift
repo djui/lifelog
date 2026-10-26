@@ -31,6 +31,32 @@ public enum WhatsAppExporter {
         chatLimit: Int = 20,
         sourceDirectory: URL? = nil
     ) throws -> SourceResult<WhatsAppChatRecord> {
+        try withLocalCopy(of: sourceDirectory) { directory in
+            let start = Calendar.current.date(byAdding: .day, value: -pastDays, to: now)!
+            let chats = try read(from: directory, start: start, now: now, chatLimit: chatLimit)
+            ExportLog.info("whatsapp: read \(chats.count) chats")
+            return SourceResult(records: chats)
+        }
+    }
+
+    /// Everything the archive needs: every 1:1 and group chat (removed and hidden ones
+    /// flagged, not dropped) and every message type since `since`.
+    public static func fetchArchive(
+        since: Date,
+        now: Date,
+        sourceDirectory: URL? = nil
+    ) throws -> SourceResult<WhatsAppChatRecord> {
+        try withLocalCopy(of: sourceDirectory) { directory in
+            let result = try readArchive(from: directory, since: since, now: now)
+            ExportLog.info("whatsapp: read \(result.records.count) chats for the archive")
+            return result
+        }
+    }
+
+    static func withLocalCopy(
+        of sourceDirectory: URL?,
+        _ body: (URL) throws -> SourceResult<WhatsAppChatRecord>
+    ) throws -> SourceResult<WhatsAppChatRecord> {
         let source = (sourceDirectory ?? defaultSourceDirectory).resolvingSymlinksInPath().standardizedFileURL
         let storage = source.appendingPathComponent("ChatStorage.sqlite")
         guard FileManager.default.fileExists(atPath: source.path),
@@ -58,10 +84,7 @@ public enum WhatsAppExporter {
             try copySQLite(named: "ContactsV2.sqlite", from: source, to: directory)
         }
 
-        let start = Calendar.current.date(byAdding: .day, value: -pastDays, to: now)!
-        let chats = try read(from: directory, start: start, now: now, chatLimit: chatLimit)
-        ExportLog.info("whatsapp: read \(chats.count) chats")
-        return SourceResult(records: chats)
+        return try body(directory)
     }
 
     static func appleTime(_ date: Date) -> Double { date.timeIntervalSince1970 - appleEpoch }
@@ -97,15 +120,7 @@ public enum WhatsAppExporter {
             throw WhatsAppExportError.unrecognizedSchema
         }
         let hasMembers = try storage.hasTable("ZWAGROUPMEMBER")
-        var contacts: [String: String] = [:]
-        let contactsURL = directory.appendingPathComponent("ContactsV2.sqlite")
-        if FileManager.default.fileExists(atPath: contactsURL.path) {
-            let book = try SQLiteDB(url: contactsURL)
-            defer { book.close() }
-            if try book.hasTable("ZWAADDRESSBOOKCONTACT") {
-                contacts = try loadContacts(book)
-            }
-        }
+        let contacts = try loadContacts(in: directory)
 
         let windowStart = appleTime(start)
         let windowEnd = appleTime(now)
@@ -157,21 +172,11 @@ public enum WhatsAppExporter {
                 if type == 0 && text == nil { return }
                 if placeholder == nil && type != 0 { return }
                 let fromMe = row.int(2) == 1
-                let fromJID = row.text(5) ?? ""
-                let memberJID = row.text(9) ?? fromJID
-                let sender: String
-                if fromMe {
-                    sender = "Me"
-                } else if session.kind == "group" {
-                    sender = firstNonEmpty(row.text(7), row.text(8), contacts[memberJID], contacts[jidUser(memberJID)],
-                                           contacts[digits(memberJID)], row.text(6), jidUser(memberJID), session.title) ?? "Unknown"
-                } else {
-                    sender = firstNonEmpty(session.title, row.text(6), contacts[fromJID], contacts[jidUser(fromJID)],
-                                           contacts[digits(fromJID)], jidUser(fromJID)) ?? "Unknown"
-                }
                 messages.append(WhatsAppMessageRecord(
                     id: String(row.int(0)),
-                    sender: sender,
+                    sender: sender(fromMe: fromMe, fromJID: row.text(5), pushName: row.text(6),
+                                   memberName: row.text(7), memberFirstName: row.text(8), memberJID: row.text(9),
+                                   chatKind: session.kind, chatTitle: session.title, contacts: contacts),
                     timestamp: date(fromApple: row.double(1)),
                     fromMe: fromMe,
                     text: text,
@@ -181,6 +186,133 @@ public enum WhatsAppExporter {
             chats.append(WhatsAppChatRecord(id: String(session.id), title: session.title, kind: session.kind, jid: session.jid, messages: messages))
         }
         return chats
+    }
+
+    static func readArchive(from directory: URL, since: Date, now: Date) throws -> SourceResult<WhatsAppChatRecord> {
+        let storage = try SQLiteDB(url: directory.appendingPathComponent("ChatStorage.sqlite"))
+        defer { storage.close() }
+        guard try storage.hasTable("ZWACHATSESSION"), try storage.hasTable("ZWAMESSAGE") else {
+            throw WhatsAppExportError.unrecognizedSchema
+        }
+        for column in ["Z_PK", "ZCONTACTJID", "ZSESSIONTYPE"] {
+            guard try storage.hasColumn(table: "ZWACHATSESSION", column: column) else { throw WhatsAppExportError.unrecognizedSchema }
+        }
+        for column in ["Z_PK", "ZCHATSESSION", "ZMESSAGEDATE", "ZISFROMME", "ZMESSAGETYPE", "ZTEXT"] {
+            guard try storage.hasColumn(table: "ZWAMESSAGE", column: column) else { throw WhatsAppExportError.unrecognizedSchema }
+        }
+        // Optional columns degrade to NULL so a WhatsApp update cannot make whole chats look deleted.
+        func optional(_ table: String, _ alias: String, _ column: String) throws -> String {
+            try storage.hasColumn(table: table, column: column) ? "\(alias).\(column)" : "NULL"
+        }
+        var warnings: [String] = []
+        let contacts = try loadContacts(in: directory)
+
+        var sessions: [Int64: WhatsAppChatRecord] = [:]
+        var order: [Int64] = []
+        try storage.forEach("""
+            SELECT s.Z_PK, \(try optional("ZWACHATSESSION", "s", "ZPARTNERNAME")), s.ZCONTACTJID, s.ZSESSIONTYPE,
+                   \(try optional("ZWACHATSESSION", "s", "ZREMOVED")), \(try optional("ZWACHATSESSION", "s", "ZHIDDEN"))
+            FROM ZWACHATSESSION s
+            WHERE s.ZSESSIONTYPE IN (0, 1)
+            ORDER BY s.Z_PK ASC
+            """) { row in
+            let id = row.int(0)
+            let jid = row.text(2) ?? ""
+            let kind = row.int(3) == 1 ? "group" : "direct"
+            let title = firstNonEmpty(row.text(1), contacts[jid], contacts[jidUser(jid)], contacts[digits(jid)], jidUser(jid)) ?? "Chat"
+            sessions[id] = WhatsAppChatRecord(id: String(id), title: title, kind: kind, jid: jid, messages: [],
+                                              isRemoved: row.int(4) != 0, isHidden: row.int(5) != 0)
+            order.append(id)
+        }
+
+        let hasStanza = try storage.hasColumn(table: "ZWAMESSAGE", column: "ZSTANZAID")
+        if !hasStanza {
+            warnings.append("WhatsApp messages have no stanza ids in this database version; archive keys fall back to row ids.")
+        }
+        let hasMembers = try storage.hasTable("ZWAGROUPMEMBER") && storage.hasColumn(table: "ZWAMESSAGE", column: "ZGROUPMEMBER")
+        let memberJoin = hasMembers ? "LEFT JOIN ZWAGROUPMEMBER g ON m.ZGROUPMEMBER = g.Z_PK" : ""
+        let memberColumns = hasMembers
+            ? "\(try optional("ZWAGROUPMEMBER", "g", "ZCONTACTNAME")), \(try optional("ZWAGROUPMEMBER", "g", "ZFIRSTNAME")), \(try optional("ZWAGROUPMEMBER", "g", "ZMEMBERJID"))"
+            : "NULL, NULL, NULL"
+        try storage.forEach("""
+            SELECT m.Z_PK, m.ZCHATSESSION, m.ZMESSAGEDATE, m.ZISFROMME, m.ZMESSAGETYPE, m.ZTEXT,
+                   \(try optional("ZWAMESSAGE", "m", "ZFROMJID")), \(try optional("ZWAMESSAGE", "m", "ZPUSHNAME")), \(memberColumns),
+                   \(hasStanza ? "m.ZSTANZAID" : "NULL"), \(try optional("ZWAMESSAGE", "m", "ZSENTDATE"))
+            FROM ZWAMESSAGE m
+            JOIN ZWACHATSESSION s ON m.ZCHATSESSION = s.Z_PK
+            \(memberJoin)
+            WHERE s.ZSESSIONTYPE IN (0, 1)
+              AND m.ZMESSAGEDATE >= ?
+              AND m.ZMESSAGEDATE <= ?
+            ORDER BY m.ZCHATSESSION ASC, m.ZMESSAGEDATE ASC, m.Z_PK ASC
+            """, bind: [.double(appleTime(since)), .double(appleTime(now))]) { row in
+            let sessionID = row.int(1)
+            guard let chat = sessions[sessionID] else { return }
+            let type = Int(row.int(4))
+            let kind = archiveKind(for: type)
+            let fromMe = row.int(3) == 1
+            let message = WhatsAppMessageRecord(
+                id: String(row.int(0)),
+                sender: sender(fromMe: fromMe, fromJID: row.text(6), pushName: row.text(7),
+                               memberName: row.text(8), memberFirstName: row.text(9), memberJID: row.text(10),
+                               chatKind: chat.kind, chatTitle: chat.title, contacts: contacts),
+                timestamp: date(fromApple: row.double(2)),
+                fromMe: fromMe,
+                text: kind == .revoked ? nil : nonempty(row.text(5)),
+                placeholder: kind.placeholder,
+                stanzaID: nonempty(row.text(11)),
+                rawType: type,
+                isRevoked: kind == .revoked,
+                isSystem: kind == .system,
+                sentDate: row.isNull(12) ? nil : date(fromApple: row.double(12))
+            )
+            sessions[sessionID]?.messages.append(message)
+        }
+        return SourceResult(records: order.compactMap { sessions[$0] }, warnings: warnings)
+    }
+
+    enum ArchiveKind: Equatable {
+        case text, system, revoked
+        case media(String)
+        case other(Int)
+
+        var placeholder: String? {
+            switch self {
+            case .text, .system, .revoked: return nil
+            case .media(let label): return label
+            case .other(let type): return "Message type \(type)"
+            }
+        }
+    }
+
+    /// Phase 0 probes: 7 carries link previews and 41–43 carry text, so they count as messages.
+    static func archiveKind(for type: Int) -> ArchiveKind {
+        switch type {
+        case 0, 7, 41, 42, 43: return .text
+        case 6, 10: return .system
+        case 14: return .revoked
+        default:
+            if let label = placeholder(for: type) { return .media(label) }
+            return .other(type)
+        }
+    }
+
+    static func sender(
+        fromMe: Bool, fromJID: String?, pushName: String?,
+        memberName: String?, memberFirstName: String?, memberJID: String?,
+        chatKind: String, chatTitle: String, contacts: [String: String]
+    ) -> String {
+        let fromJID = fromJID ?? ""
+        let memberJID = memberJID ?? fromJID
+        if fromMe {
+            return "Me"
+        } else if chatKind == "group" {
+            return firstNonEmpty(memberName, memberFirstName, contacts[memberJID], contacts[jidUser(memberJID)],
+                                 contacts[digits(memberJID)], pushName, jidUser(memberJID), chatTitle) ?? "Unknown"
+        } else {
+            return firstNonEmpty(chatTitle, pushName, contacts[fromJID], contacts[jidUser(fromJID)],
+                                 contacts[digits(fromJID)], jidUser(fromJID)) ?? "Unknown"
+        }
     }
 
     static func placeholder(for type: Int) -> String? {
@@ -193,6 +325,15 @@ public enum WhatsAppExporter {
         case 8: return "Document"
         default: return nil
         }
+    }
+
+    static func loadContacts(in directory: URL) throws -> [String: String] {
+        let contactsURL = directory.appendingPathComponent("ContactsV2.sqlite")
+        guard FileManager.default.fileExists(atPath: contactsURL.path) else { return [:] }
+        let book = try SQLiteDB(url: contactsURL)
+        defer { book.close() }
+        guard try book.hasTable("ZWAADDRESSBOOKCONTACT") else { return [:] }
+        return try loadContacts(book)
     }
 
     static func loadContacts(_ db: SQLiteDB) throws -> [String: String] {
@@ -257,6 +398,7 @@ final class SQLiteDB {
             guard let pointer = sqlite3_column_text(statement, column) else { return nil }
             return String(cString: pointer)
         }
+        func isNull(_ column: Int32) -> Bool { sqlite3_column_type(statement, column) == SQLITE_NULL }
     }
 
     private var handle: OpaquePointer?
@@ -282,6 +424,12 @@ final class SQLiteDB {
     func hasTable(_ name: String) throws -> Bool {
         var found = false
         try forEach("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", bind: [.text(name)]) { _ in found = true }
+        return found
+    }
+
+    func hasColumn(table: String, column: String) throws -> Bool {
+        var found = false
+        try forEach("SELECT 1 FROM pragma_table_info(?) WHERE name = ?", bind: [.text(table), .text(column)]) { _ in found = true }
         return found
     }
 

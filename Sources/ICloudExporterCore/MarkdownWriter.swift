@@ -38,7 +38,8 @@ public enum MarkdownWriter {
         var documents: [ExportDocument] = []
         if config.sources.contains(.notes) {
             var ids = Set<String>()
-            for note in snapshot.notes.sorted(by: { $0.id < $1.id }) {
+            // Locked notes are archive stubs without a body; `export` has always skipped them.
+            for note in snapshot.notes.sorted(by: { $0.id < $1.id }) where note.isLocked != true {
                 guard !note.id.isEmpty, ids.insert(note.id).inserted else { throw ExportError.message("Notes returned a missing or duplicate identifier; export stopped.") }
                 let folders = note.folder.split(separator: "/").map { safeComponent(String($0)) }
                 let path = (["Notes", safeComponent(note.account)] + folders + [safeComponent(note.title) + "--" + digest(Data(note.id.utf8)).prefix(16) + ".md"]).joined(separator: "/")
