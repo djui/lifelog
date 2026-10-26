@@ -105,7 +105,7 @@ public struct Config {
       export      Mirror the sources into Markdown snapshots
       archive     Keep a lifelong archive that never loses items: deleted, expired
                   and revoked items are marked, never dropped
-      rebuild     Regenerate archive pages from the ledger (not available yet)
+      rebuild     Regenerate every archive page from the ledger
       verify      Check the archive ledger, run log and index cache
 
     Export options:
@@ -134,5 +134,10 @@ public struct Config {
     in that history window. Exported files are managed snapshots, not backups.
     Choose an empty dedicated folder, or a previous export folder. Export and
     archive folders must be separate.
+
+    Archive layout: _index.md, Timeline/ and _Disappeared/ by month, WhatsApp/<chat>/,
+    Calendar/ and Reminders/ by month, Notes/ by account and folder, and ChatGPT/,
+    Claude/ and ClaudeCode/ by the month a chat started. The ledger in .archive/ is
+    the source of truth; pages are views of it.
     """
 }

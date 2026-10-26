@@ -139,6 +139,11 @@ enum JSONLines {
         return formatter
     }()
 
+    /// Values as a reader of the files will see them, such as dates cut to milliseconds.
+    static func stored<Value: Codable>(_ values: [Value]) throws -> [Value] {
+        try values.map { try decoder.decode(Value.self, from: encoder.encode($0)) }
+    }
+
     static func month(_ date: Date) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!

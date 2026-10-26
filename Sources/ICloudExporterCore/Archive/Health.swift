@@ -45,9 +45,10 @@ public enum Health {
     public static let whatsAppBundleID = "net.whatsapp.WhatsApp"
 
     /// Warnings for `_index.md`, read from the run log on disk.
-    public static func warnings(runLog: RunLog, now: Date, sources: Set<ArchiveSource>? = nil, whatsAppRunning: Bool? = whatsAppRunning()) -> [String] {
+    public static func warnings(runLog: RunLog, now: Date, sources: Set<ArchiveSource>? = nil, whatsAppRunning: Bool? = whatsAppRunning(),
+                                timeZone: TimeZone = .current) -> [String] {
         do {
-            return report(try runLog.read().records, now: now, sources: sources, whatsAppRunning: whatsAppRunning).warnings
+            return report(try runLog.read().records, now: now, sources: sources, whatsAppRunning: whatsAppRunning, timeZone: timeZone).warnings
         } catch {
             return ["The run log could not be read: \(error.localizedDescription)"]
         }

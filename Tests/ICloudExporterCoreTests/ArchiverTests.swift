@@ -101,11 +101,11 @@ final class ArchiverTests: XCTestCase {
         XCTAssertEqual(failed.warnings, ["WhatsApp Desktop data was not found; skipped."])
         XCTAssertTrue(try XCTUnwrap(records.first { $0.source == .notes }).complete)
 
-        let page = try String(contentsOf: root.appendingPathComponent(Archiver.indexPageName), encoding: .utf8)
-        XCTAssertTrue(page.contains("| Notes | 2026-09-21T"), page)
+        let page = try String(contentsOf: root.appendingPathComponent("_index.md"), encoding: .utf8)
+        XCTAssertTrue(page.contains("| Notes | 2026-09-21 16:13 |"), page)
         XCTAssertTrue(page.contains("| backfill | 2 | 0 | 0 |"), page)
         XCTAssertTrue(page.contains("| WhatsApp | never | – | 0 | 0 | 0 |"), page)
-        XCTAssertTrue(page.contains("- WhatsApp, 2026-09-21T"), page)
+        XCTAssertTrue(page.contains("- WhatsApp, 2026-09-21 16:13:"), page)
     }
 
     func testTombstoneNeedsTwoCompleteMissesAndSurvivesReload() async throws {
@@ -267,10 +267,10 @@ final class ArchiverTests: XCTestCase {
         let late = Date(timeIntervalSince1970: 1_790_031_600) // 2026-09-21 23:00 UTC
         let message = ArchivePayload.message(WhatsAppArchiveMessage(chatJID: "j", chatTitle: "A", chatKind: "direct",
                                                                     message: WhatsAppMessageRecord(id: "1", sender: "A", timestamp: late, fromMe: false, text: "hi", placeholder: nil)))
-        XCTAssertEqual(Archiver.partition(of: message, fallback: t0, timeZone: berlin), Partition(date: "2026-09-22", utcOffset: 7200))
+        XCTAssertEqual(Partition.of(message, fallback: t0, timeZone: berlin), Partition(date: "2026-09-22", utcOffset: 7200))
         let event = ArchivePayload.event(CalendarRecord(id: "e", title: "Call", calendar: "Work", start: late, end: late + 3600, isAllDay: false,
                                                         timeZone: "America/New_York", location: nil, notes: nil, url: nil))
-        XCTAssertEqual(Archiver.partition(of: event, fallback: t0, timeZone: berlin), Partition(date: "2026-09-21", utcOffset: -14400))
+        XCTAssertEqual(Partition.of(event, fallback: t0, timeZone: berlin), Partition(date: "2026-09-21", utcOffset: -14400))
     }
 
     func testAIMessagesRoundTripThroughTheLedger() throws {

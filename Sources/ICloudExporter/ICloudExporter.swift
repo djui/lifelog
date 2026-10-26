@@ -21,8 +21,8 @@ struct ICloudExporter {
             switch config.command {
             case .export: try await runExport(config)
             case .archive: try await runArchive(config)
+            case .rebuild: try runRebuild(config)
             case .verify: try runVerify(config)
-            case .rebuild: throw ExportError.message("'\(config.command.rawValue)' is not available yet.")
             }
         } catch {
             stderr("\(label) failed: \(error.localizedDescription)")
@@ -99,11 +99,15 @@ struct ICloudExporter {
                 let one = try await archiver.run(run.readers, now: run.at, demo: true)
                 summary.lines += one.lines
                 summary.failures.merge(one.failures) { $1 }
+                summary.pages.merge(one.pages)
+                summary.pageError = summary.pageError ?? one.pageError
             }
         } else {
             let selected = ArchiveReaders.order.filter(config.sources.contains)
             ExportLog.info("starting archive run of \(selected.map(\.rawValue).joined(separator: ", ")) to \(root.path)")
             let cacheDirectory = cacheRoot.map { ArchiveIndex.cacheDirectory(for: ledger, in: $0) }
+            // The "Health" section of `_index.md`, from the run log including this run's reads.
+            archiver.health = { records, _ in Health.report(records, now: Date(), sources: config.sources, whatsAppRunning: Health.whatsAppRunning()).warnings }
             summary = try await archiver.run(ArchiveReaders.live(config, cursorFile: cacheDirectory?.appendingPathComponent("claudecode-cursors.json"),
                                                                  digestCache: cacheDirectory?.appendingPathComponent("ai-inbox-digests.json")), now: now)
             // After the run, so this run's reads count. The demo's clock is synthetic, so it gets no health check.
@@ -120,12 +124,37 @@ struct ICloudExporter {
         }
         for line in summary.lines { for warning in line.warnings { stderr("Warning (\(line.source.rawValue)): \(warning)") } }
         print("Archive run complete: \(summary.added) added, \(summary.changed) changed, \(summary.tombstoned) tombstoned, \(summary.revoked) revoked, \(summary.pending) pending, \(summary.warnings.count) warnings.")
-        print("Archive holds \(archiver.index.items.count) items. Output: \(root.path)")
+        print("Archive holds \(archiver.index.items.count) items. Pages: \(summary.pages.written) written, \(summary.pages.unchanged) unchanged, \(summary.pages.removed) removed. Output: \(root.path)")
+        if let pageError = summary.pageError { stderr("Archive pages were not written: \(pageError) The ledger is up to date; run rebuild after fixing this.") }
         if !summary.failures.isEmpty {
             for (source, message) in summary.failures.sorted(by: { $0.key.rawValue < $1.key.rawValue }) { stderr("Archive failed (\(source.rawValue)): \(message)") }
             stderr("Sources that did not archive: \(summary.failures.keys.map { $0.rawValue }.sorted().joined(separator: ", "))")
             exit(1)
         }
+        if summary.pageError != nil { exit(1) }
+    }
+
+    @MainActor
+    static func runRebuild(_ config: Config) throws {
+        let root = config.output.resolvingSymlinksInPath().standardizedFileURL
+        guard FileManager.default.fileExists(atPath: root.appendingPathComponent(Ledger.folderName).path) else {
+            throw ExportError.message("No archive in \(root.path) (\(Ledger.folderName)/ is missing).")
+        }
+        let lock = try ArchiveLock(root.appendingPathComponent(ArchiveLock.name), owner: "archive run")
+        defer { lock.release() }
+        try Ledger.checkFolder(root)
+        // Rebuild only reads the ledger, so it never needs this Mac's host id.
+        let ledger = Ledger(root: root, host: "rebuild")
+        let runLog = RunLog(root: root, host: "rebuild")
+        let demo = try runLog.read().records.contains { $0.mode == ReadMode.demo.rawValue }
+        let index = try ArchiveIndex.load(ledger, cacheRoot: demo ? nil : ArchiveIndex.defaultCacheRoot)
+        for issue in index.issues { stderr("Warning: \(issue)") }
+        let now = Date()
+        // A demo archive has a synthetic clock, so it gets no health check (as in `archive --demo`).
+        let health = demo ? [] : Health.warnings(runLog: runLog, now: now)
+        let summary = try Archiver.rebuild(ledger, runLog: runLog, index: index, now: now, health: health)
+        print("Rebuild complete: \(summary.written) pages written, \(summary.unchanged) unchanged, \(summary.removed) removed, from \(index.items.count) items.")
+        print("Output: \(root.path)")
     }
 
     static func runVerify(_ config: Config) throws {

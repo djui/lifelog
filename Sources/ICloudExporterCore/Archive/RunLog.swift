@@ -15,12 +15,14 @@ public struct RunRecord: Codable, Equatable {
     public var mode: String?
     /// SHA-256 of an imported AI export zip, so the same export is never imported twice.
     public var digest: String?
+    /// The Mac's time zone during the run. Items without a zone of their own (messages, notes, reminders) are dated with it (decision 15).
+    public var timeZone: String?
 
     public init(run: String, source: ArchiveSource, start: Date, end: Date, complete: Bool, scope: String, counts: [String: Int] = [:], warnings: [String] = [],
-                mode: String? = nil, digest: String? = nil) {
+                mode: String? = nil, digest: String? = nil, timeZone: String? = nil) {
         v = 1; self.run = run; self.source = source; self.start = start; self.end = end
         self.complete = complete; self.scope = scope; self.counts = counts; self.warnings = warnings
-        self.mode = mode; self.digest = digest
+        self.mode = mode; self.digest = digest; self.timeZone = timeZone
     }
 }
 

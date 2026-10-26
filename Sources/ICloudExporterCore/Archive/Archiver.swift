@@ -82,6 +82,10 @@ public struct ArchiveSummary {
 
     public var lines: [Line] = []
     public var failures: [ArchiveSource: String] = [:]
+    /// Archive pages written after the merge.
+    public var pages = ExportSummary()
+    /// Set when the pages could not be written. The ledger is already up to date; `rebuild` retries the pages.
+    public var pageError: String?
 
     public init() {}
 
@@ -105,6 +109,8 @@ public final class Archiver {
     public let options: ArchiveOptions
     let cacheRoot: URL?
     let timeZone: TimeZone
+    /// Warnings for the "Health" section of `_index.md`, from the run log after the run (phase 6).
+    public var health: (_ records: [RunRecord], _ now: Date) -> [String] = { _, _ in [] }
 
     public init(ledger: Ledger, runLog: RunLog, index: ArchiveIndex, options: ArchiveOptions, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot, timeZone: TimeZone = .current) {
         self.ledger = ledger; self.runLog = runLog; self.index = index; self.options = options; self.cacheRoot = cacheRoot; self.timeZone = timeZone
@@ -126,6 +132,8 @@ public final class Archiver {
         let imported = Set(records.compactMap(\.digest))
         var summary = ArchiveSummary()
         var cacheValid = true
+        let before = index
+        var touched = Set<ItemKey>()
 
         for reader in readers {
             let source = reader.source
@@ -135,18 +143,24 @@ public final class Archiver {
             var appending = false
             do {
                 for read in try await reader.read(request) {
-                    let items = StableKey.items(read.payloads, at: now) { Self.partition(of: $0, fallback: now, timeZone: self.timeZone) }
+                    let items = StableKey.items(read.payloads, at: now) { Partition.of($0, fallback: now, timeZone: self.timeZone) }
                     let observation = Observation(source: source, runID: runID, at: now, complete: read.complete, scope: read.scope, items: items)
                     let result = Merger.merge(index, observation)
                     appending = true
                     try ledger.append(result.events)
-                    for event in result.events { index.apply(event) }
+                    // Apply what the ledger holds (millisecond timestamps), not the in-memory values, so pages
+                    // rendered now are byte for byte what `rebuild` renders from a fresh fold.
+                    for event in try JSONLines.stored(result.events) {
+                        index.apply(event)
+                        touched.insert(event.key)
+                        if let newKey = event.newKey { touched.insert(newKey) }
+                    }
                     appending = false
                     let warnings = read.warnings + result.warnings
                     let record = RunRecord(run: runID, source: source, start: now, end: end(), complete: read.complete, scope: read.scope.summary,
-                                           counts: result.counts, warnings: warnings, mode: mode.rawValue, digest: read.digest)
+                                           counts: result.counts, warnings: warnings, mode: mode.rawValue, digest: read.digest, timeZone: timeZone.identifier)
                     try runLog.append([record])
-                    records.append(record)
+                    records += try JSONLines.stored([record])
                     summary.lines.append(.init(source: source, mode: mode, complete: read.complete, counts: result.counts, warnings: warnings))
                     do { try read.commit?() } catch {
                         summary.lines[summary.lines.count - 1].warnings.append("could not save the read position: \(error.localizedDescription)")
@@ -158,14 +172,17 @@ public final class Archiver {
                 let message = error.localizedDescription
                 summary.failures[source] = message
                 let record = RunRecord(run: runID, source: source, start: now, end: end(), complete: false, scope: "read failed",
-                                       warnings: [message], mode: mode.rawValue)
-                do { try runLog.append([record]); records.append(record) } catch {
+                                       warnings: [message], mode: mode.rawValue, timeZone: timeZone.identifier)
+                do { try runLog.append([record]); records += try JSONLines.stored([record]) } catch {
                     ExportLog.info("could not log the failed \(source.rawValue) run: \(error.localizedDescription)")
                 }
             }
         }
         if cacheValid { index.save(ledger, cacheRoot: cacheRoot) }
-        try Data(Self.indexPage(index: index, records: records, now: now).utf8).write(to: ledger.root.appendingPathComponent(Self.indexPageName), options: .atomic)
+        // Only pages showing an item this run touched are rendered; the rest stay as they are.
+        let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health(records, now))
+        do { summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: before, touched: touched) }
+        catch { summary.pageError = error.localizedDescription }
         return summary
     }
 
@@ -189,54 +206,11 @@ public final class Archiver {
         return now.timeIntervalSince(last) >= TimeInterval(options.fullSweepDays) * 86_400 ? .full : .rescan
     }
 
-    /// The civil date an item belongs to, with the UTC offset that produced it (decision 15). The ledger only
-    /// needs it to be stable; phase 5 lays out the views by it.
-    public static func partition(of payload: ArchivePayload, fallback: Date, timeZone: TimeZone = .current) -> Partition {
-        var zone = timeZone
-        let date: Date
-        switch payload {
-        case .note(let note): date = note.modified ?? note.created ?? fallback
-        case .reminder(let reminder): date = reminder.completionDate ?? reminder.created ?? fallback
-        case .event(let event):
-            if event.isAllDay, let day = event.startDate { return Partition(date: day, utcOffset: timeZone.secondsFromGMT(for: event.start)) }
-            if let identifier = event.timeZone, let eventZone = TimeZone(identifier: identifier) { zone = eventZone }
-            date = event.start
-        case .message(let value): date = value.message.timestamp
-        case .aiMessage(let value): date = value.message.timestamp ?? fallback
-        }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = zone
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
-        return Partition(date: String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!), utcOffset: zone.secondsFromGMT(for: date))
-    }
-
-    public static let indexPageName = "_index.md"
-
-    /// Minimal status page until the views of phase 5. Rewritten whole on every run.
-    public static func indexPage(index: ArchiveIndex, records: [RunRecord], now: Date) -> String {
-        func time(_ date: Date) -> String { JSONLines.timestamp.string(from: date) }
-        let complete = RunLog.lastComplete(records)
-        var latest: [ArchiveSource: RunRecord] = [:]
-        for record in records where record.end >= (latest[record.source]?.end ?? .distantPast) { latest[record.source] = record }
-        let items = Dictionary(grouping: index.items.values, by: \.key.source)
-        var lines = [
-            "# Archive", "",
-            "Updated \(time(now)). The ledger in `\(Ledger.folderName)/` is the source of truth; this page is rewritten on every run.", "",
-            "| Source | Last complete read | Mode | Items | Gone | Pending |",
-            "|---|---|---|---:|---:|---:|",
-        ]
-        for source in ArchiveSource.allCases where latest[source] != nil || items[source] != nil {
-            let all = items[source] ?? []
-            let gone = all.filter { $0.state.isTombstone || $0.state == .revoked }.count
-            let pending = all.filter { $0.missingSince != nil }.count
-            let last = complete[source]
-            lines.append("| \(source.displayName) | \(last.map { time($0.end) } ?? "never") | \(last?.mode ?? "–") | \(all.count) | \(gone) | \(pending) |")
-        }
-        let problems = latest.values.filter { !$0.complete }.sorted { $0.source.rawValue < $1.source.rawValue }
-        if !problems.isEmpty {
-            lines += ["", "## Last read incomplete", ""]
-            for record in problems { lines.append("- \(record.source.displayName), \(time(record.end)): \(record.warnings.first ?? "partial read")") }
-        }
-        return lines.joined(separator: "\n") + "\n"
+    /// Regenerates every page from the ledger. Pages that are no longer produced are removed; unchanged ones are not rewritten.
+    public static func rebuild(_ ledger: Ledger, runLog: RunLog, index: ArchiveIndex, now: Date, timeZone: TimeZone = .current, health: [String] = []) throws -> ExportSummary {
+        let records = try runLog.read().records
+        let demo = records.contains { $0.mode == ReadMode.demo.rawValue }
+        let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health)
+        return try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive))
     }
 }

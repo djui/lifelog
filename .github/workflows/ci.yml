@@ -39,6 +39,14 @@ jobs:
           grep -q '"state":"expired"' "$output"/.archive/ledger/whatsapp/*.jsonl
           grep -q '"state":"revoked"' "$output"/.archive/ledger/whatsapp/*.jsonl
           grep -q '"state":"deleted"' "$output"/.archive/ledger/reminders/*.jsonl
+          # Pages: month files, the Timeline and the _Disappeared digest, with gone items kept in place.
+          grep -q "## Health" "$output/_index.md"
+          test -n "$(ls "$output"/Timeline/*/*.md 2>/dev/null)"
+          test -n "$(ls "$output"/_Disappeared/*/*.md 2>/dev/null)"
+          test -s "$output/Reminders/open.md"
+          grep -q "expired" "$output"/WhatsApp/*/*/*.md
+          grep -q "~~" "$output"/Calendar/*/*.md
+          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter rebuild --output "$output" | grep -q "0 pages written"
           # A second demo into the same folder is refused, so demo data never mixes with a real archive.
           if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --demo; then exit 1; fi
           if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --sources claudecode; then exit 1; fi

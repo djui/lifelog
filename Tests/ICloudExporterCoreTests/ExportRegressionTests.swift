@@ -41,7 +41,7 @@ final class ExportRegressionTests: XCTestCase {
     func render(_ snapshot: ExportSnapshot) throws -> String {
         let config = try Config(arguments: ["export", "--output", "/tmp/unused"])
         let documents = try MarkdownWriter.documents(snapshot: snapshot, config: config, now: now)
-        return documents.map { "\($0.source.rawValue) \($0.path)\n\($0.content)" }.joined(separator: "\n\u{0}\n")
+        return documents.map { "\($0.group) \($0.path)\n\($0.content)" }.joined(separator: "\n\u{0}\n")
     }
 
     /// Digest of the output before the archive fields existed.
