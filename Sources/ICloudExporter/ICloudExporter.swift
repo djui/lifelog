@@ -22,7 +22,7 @@ struct ICloudExporter {
             case .export: try await runExport(config)
             case .archive: try await runArchive(config)
             case .rebuild: try runRebuild(config)
-            case .verify: throw ExportError.message("'\(config.command.rawValue)' is not available yet.")
+            case .verify: try runVerify(config)
             }
         } catch {
             stderr("\(label) failed: \(error.localizedDescription)")
@@ -105,8 +105,17 @@ struct ICloudExporter {
         } else {
             let selected = ArchiveReaders.order.filter(config.sources.contains)
             ExportLog.info("starting archive run of \(selected.map(\.rawValue).joined(separator: ", ")) to \(root.path)")
-            let cursorFile = cacheRoot.map { ArchiveIndex.cacheDirectory(for: ledger, in: $0).appendingPathComponent("claudecode-cursors.json") }
-            summary = try await archiver.run(ArchiveReaders.live(config, cursorFile: cursorFile), now: now)
+            let cacheDirectory = cacheRoot.map { ArchiveIndex.cacheDirectory(for: ledger, in: $0) }
+            // The "Health" section of `_index.md`, from the run log including this run's reads.
+            archiver.health = { records, _ in Health.report(records, now: Date(), sources: config.sources, whatsAppRunning: Health.whatsAppRunning()).warnings }
+            summary = try await archiver.run(ArchiveReaders.live(config, cursorFile: cacheDirectory?.appendingPathComponent("claudecode-cursors.json"),
+                                                                 digestCache: cacheDirectory?.appendingPathComponent("ai-inbox-digests.json")), now: now)
+            // After the run, so this run's reads count. The demo's clock is synthetic, so it gets no health check.
+            let health = Health.report(try runLog.read().records, now: Date(), sources: config.sources, whatsAppRunning: Health.whatsAppRunning())
+            for warning in health.warnings { stderr("Health: \(warning)") }
+            if config.notify, let cacheDirectory {
+                await Notifier.send(health.notices, sentFile: cacheDirectory.appendingPathComponent(SentNotices.fileName), now: Date())
+            }
         }
 
         for line in summary.lines {
@@ -140,9 +149,25 @@ struct ICloudExporter {
         let demo = try runLog.read().records.contains { $0.mode == ReadMode.demo.rawValue }
         let index = try ArchiveIndex.load(ledger, cacheRoot: demo ? nil : ArchiveIndex.defaultCacheRoot)
         for issue in index.issues { stderr("Warning: \(issue)") }
-        let summary = try Archiver.rebuild(ledger, runLog: runLog, index: index, now: Date())
+        let now = Date()
+        // A demo archive has a synthetic clock, so it gets no health check (as in `archive --demo`).
+        let health = demo ? [] : Health.warnings(runLog: runLog, now: now)
+        let summary = try Archiver.rebuild(ledger, runLog: runLog, index: index, now: now, health: health)
         print("Rebuild complete: \(summary.written) pages written, \(summary.unchanged) unchanged, \(summary.removed) removed, from \(index.items.count) items.")
         print("Output: \(root.path)")
+    }
+
+    static func runVerify(_ config: Config) throws {
+        let root = config.output.resolvingSymlinksInPath().standardizedFileURL
+        guard FileManager.default.fileExists(atPath: root.path) else { throw ExportError.message("No archive at \(root.path).") }
+        // Shares the archive lock, so a run in progress is not mistaken for torn lines.
+        let lock = try ArchiveLock(root.appendingPathComponent(ArchiveLock.name), owner: "archive run or verify")
+        defer { lock.release() }
+        let report = try Verifier.verify(root: root, cacheRoot: ArchiveIndex.defaultCacheRoot)
+        for note in report.notes { stderr("Note: \(note)") }
+        for problem in report.problems { stderr("Problem: \(problem)") }
+        print("Verified \(report.events) ledger events, \(report.runs) run log lines, \(report.items) items: \(report.problems.isEmpty ? "no problems" : "\(report.problems.count) problem\(report.problems.count == 1 ? "" : "s")").")
+        if !report.problems.isEmpty { exit(1) }
     }
 
     static func read(_ source: ExportSource, window: (start: Date, end: Date, completedSince: Date), eventKit: EventKitExporter?, config: Config, now: Date) async throws -> ExportSnapshot {

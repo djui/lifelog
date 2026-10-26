@@ -23,7 +23,8 @@ public enum AIExportImporter {
     static let conversations = "conversations.json"
 
     /// Every export in `inbox` (not recursive), oldest first. Zips whose digest is in `skipDigests` are not unpacked.
-    public static func scan(inbox: URL, skipDigests: Set<String> = []) -> SourceResult<AIExport> {
+    /// `digest` lets the caller reuse digests of zips it has hashed before.
+    public static func scan(inbox: URL, skipDigests: Set<String> = [], digest: ((URL) throws -> String)? = nil) -> SourceResult<AIExport> {
         var result = SourceResult<AIExport>(records: [])
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         guard let files = try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
@@ -36,7 +37,7 @@ public enum AIExportImporter {
         }.sorted { (modified($0), $0.lastPathComponent) < (modified($1), $1.lastPathComponent) }
         for zip in candidates {
             do {
-                let digest = try fileDigest(zip)
+                let digest = try (digest ?? fileDigest)(zip)
                 if skipDigests.contains(digest) { continue }
                 if let export = try importZip(zip, digest: digest) { result.records.append(export) }
             } catch {

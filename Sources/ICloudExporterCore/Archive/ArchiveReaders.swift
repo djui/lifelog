@@ -7,10 +7,10 @@ public enum ArchiveReaders {
     public static let order: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .notes]
 
     @MainActor
-    public static func live(_ config: Config, cursorFile: URL?) -> [ArchiveReader] {
+    public static func live(_ config: Config, cursorFile: URL?, digestCache: URL? = nil) -> [ArchiveReader] {
         let needsEventKit = config.sources.contains(.reminders) || config.sources.contains(.calendar)
         let eventKit = needsEventKit ? EventKitExporter() : nil
-        let inbox = AIInbox(url: config.aiInbox)
+        let inbox = AIInbox(url: config.aiInbox, digestCache: digestCache)
         return order.filter(config.sources.contains).map { source -> ArchiveReader in
             switch source {
             case .notes: return NotesArchiveReader()
@@ -94,16 +94,63 @@ struct WhatsAppArchiveReader: ArchiveReader {
 @MainActor
 final class AIInbox {
     let url: URL
+    /// Digests of the zips seen before, in the cache folder. The inbox is often `~/Downloads`.
+    let digestCache: URL?
     private var scanned: SourceResult<AIExport>?
 
-    init(url: URL) { self.url = url }
+    init(url: URL, digestCache: URL? = nil) { self.url = url; self.digestCache = digestCache }
 
     func exports(skipping digests: Set<String>) -> SourceResult<AIExport> {
         if let scanned { return scanned }
         ExportLog.info("ai exports: scanning \(url.path)")
-        let result = AIExportImporter.scan(inbox: url, skipDigests: digests)
+        let cache = ZipDigests(file: digestCache)
+        let result = AIExportImporter.scan(inbox: url, skipDigests: digests, digest: cache.digest)
+        cache.save()
         scanned = result
         return result
+    }
+}
+
+/// SHA-256 per zip path, reused while the file's size and modification time stay the same, so a run does
+/// not re-hash every zip in the inbox. Only zips seen in this scan are kept.
+final class ZipDigests {
+    struct Entry: Codable, Equatable { var stamp: FileStamp; var digest: String }
+    let file: URL?
+    private let known: [String: Entry]
+    private(set) var seen: [String: Entry] = [:]
+    private(set) var hashed = 0
+
+    init(file: URL?) {
+        self.file = file
+        known = file.flatMap { try? JSONLines.decoder.decode([String: Entry].self, from: Data(contentsOf: $0)) } ?? [:]
+    }
+
+    func digest(_ url: URL) throws -> String {
+        // URLs cache resource values; a stale size or time would reuse a stale digest.
+        var url = url
+        url.removeAllCachedResourceValues()
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let stamp = FileStamp(size: values.fileSize ?? 0, modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0)
+        let path = url.standardizedFileURL.path
+        if let entry = known[path], entry.stamp == stamp {
+            seen[path] = entry
+            return entry.digest
+        }
+        let digest = try AIExportImporter.fileDigest(url)
+        hashed += 1
+        seen[path] = Entry(stamp: stamp, digest: digest)
+        return digest
+    }
+
+    /// A failed write only costs re-hashing next run.
+    func save() {
+        guard let file, seen != known else { return }
+        do {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONLines.encoder.encode(seen).write(to: file, options: .atomic)
+        } catch {
+            ExportLog.info("could not write the AI inbox digest cache: \(error.localizedDescription)")
+        }
     }
 }
 

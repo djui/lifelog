@@ -106,7 +106,7 @@ public struct Config {
       archive     Keep a lifelong archive that never loses items: deleted, expired
                   and revoked items are marked, never dropped
       rebuild     Regenerate every archive page from the ledger
-      verify      Check the archive ledger (not available yet)
+      verify      Check the archive ledger, run log and index cache
 
     Export options:
       --sources notes,reminders,calendar,whatsapp   Sources to export (default: all)
@@ -123,7 +123,8 @@ public struct Config {
       --full-sweep-days N                 Days between full re-reads (default: 7)
       --ai-inbox <directory>              Folder with ChatGPT/Claude export zips (default: ~/Downloads);
                                           each new zip is imported once and left in place
-      --notify                            Notify when WhatsApp capture falls behind
+      --notify                            Notify when WhatsApp capture falls behind, reads keep
+                                          failing, or an AI export is due
       --demo                              Archive synthetic examples; no local app access
 
       --help                              Show this help
