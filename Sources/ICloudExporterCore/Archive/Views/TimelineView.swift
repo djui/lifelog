@@ -18,7 +18,7 @@ enum TimelineView {
             lines += ["## \(day)", ""]
             for source in ArchiveSource.allCases {
                 let homes = Dictionary(grouping: entries.filter { $0.key.source == source }) { ArchivePages.home($0, context) }
-                for (home, shown) in homes.sorted(by: { ($0.key.label, $0.key.path) < ($1.key.label, $1.key.path) }) {
+                for (home, shown) in homes.sorted(by: { ($0.key.label, $0.key.path, $0.key.anchor ?? "") < ($1.key.label, $1.key.path, $1.key.anchor ?? "") }) {
                     let link = ArchivePages.link(home.path, from: path, anchor: home.anchor)
                     lines.append("- \(source.displayName): [\(ArchivePages.label(home.label))](\(link)) · \(detail(shown, home: home, day: day))")
                 }

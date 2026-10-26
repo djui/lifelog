@@ -212,6 +212,42 @@ final class ArchiveViewTests: XCTestCase {
         XCTAssertEqual([again.written, again.removed, again.unchanged], [0, 0, incremental.count])
     }
 
+    /// The CI smoke test: `rebuild` right after `archive --demo` writes nothing. Real clocks have sub-millisecond parts
+    /// the ledger does not keep, so clocks around midnight UTC and odd fractions are tried in several zones.
+    func testRebuildAfterDemoWritesNothing() async throws {
+        let clocks = ["2026-10-26T22:42:31.123456Z", "2026-10-26T23:59:59.9996Z", "2026-10-27T00:00:00.0004Z", "2026-10-25T00:30:00.5Z", "2026-03-29T01:00:00.25Z"]
+        for zone in ["UTC", "Europe/Berlin", "America/Los_Angeles"].map({ TimeZone(identifier: $0)! }) {
+            for clock in clocks {
+                let fraction = Double(clock.split(separator: ".")[1].dropLast()).map { $0 / pow(10, Double(clock.split(separator: ".")[1].count - 1)) } ?? 0
+                let now = at(String(clock.split(separator: ".")[0]) + "Z") + fraction
+                let root = try temporaryDirectory()
+                let ledger = Ledger(root: root, host: Demo.archiveHost), runLog = RunLog(root: root, host: Demo.archiveHost)
+                let archiver = Archiver(ledger: ledger, runLog: runLog, index: ArchiveIndex(), options: options, cacheRoot: nil, timeZone: zone)
+                for run in Demo.archiveRuns(now: now) {
+                    let summary = try await archiver.run(run.readers, now: run.at, demo: true)
+                    XCTAssertNil(summary.pageError)
+                }
+                let incremental = try pages(root)
+                // Later, as CI runs it, and on a Mac in another zone.
+                let rebuilt = try Archiver.rebuild(ledger, runLog: runLog, index: try ArchiveIndex.load(ledger, cacheRoot: nil), now: now + 90, timeZone: Self.newYork)
+                XCTAssertEqual(rebuilt.written, 0, "\(zone.identifier) \(clock)")
+                XCTAssertEqual(rebuilt.removed, 0, "\(zone.identifier) \(clock)")
+                let again = try pages(root)
+                for (path, page) in incremental where again[path] != page { XCTFail("\(zone.identifier) \(clock): \(path) rewritten by rebuild: \(firstDifference(page, again[path]))") }
+
+                // And every page matches a rebuild from the ledger alone.
+                let copy = try temporaryDirectory()
+                try FileManager.default.copyItem(at: root.appendingPathComponent(Ledger.folderName), to: copy.appendingPathComponent(Ledger.folderName))
+                try FileManager.default.removeItem(at: copy.appendingPathComponent(ExportStore.pagesManifestName))
+                let fresh = Ledger(root: copy, host: "rebuild")
+                _ = try Archiver.rebuild(fresh, runLog: RunLog(root: copy, host: "rebuild"), index: try ArchiveIndex.load(fresh, cacheRoot: nil), now: now + 3600, timeZone: Self.berlin)
+                let other = try pages(copy)
+                XCTAssertEqual(Set(other.keys), Set(incremental.keys), "\(zone.identifier) \(clock)")
+                for (path, page) in incremental where other[path] != page { XCTFail("\(zone.identifier) \(clock): \(path) differs after rebuild: \(firstDifference(page, other[path]))") }
+            }
+        }
+    }
+
     func testRunRendersOnlyTouchedPagesAndRemovesStaleOnes() async throws {
         let root = try temporaryDirectory()
         try await archive(root, runs: 2)
@@ -336,6 +372,15 @@ final class ArchiveViewTests: XCTestCase {
         XCTAssertEqual(ArchivePages.link("Calendar/2026/2026-10.md", from: "Timeline/2026/2026-10.md", anchor: "2026-10-28"), "../../Calendar/2026/2026-10.md#2026-10-28")
         XCTAssertEqual(ArchivePages.link("Notes/i cloud/a (1).md", from: "_index.md"), "Notes/i%20cloud/a%20%281%29.md")
     }
+}
+
+/// The first line that differs, for readable failures.
+private func firstDifference(_ a: String, _ b: String?) -> String {
+    let left = a.components(separatedBy: "\n"), right = (b ?? "").components(separatedBy: "\n")
+    for index in 0..<max(left.count, right.count) where (index < left.count ? left[index] : nil) != (index < right.count ? right[index] : nil) {
+        return "line \(index + 1): \(index < left.count ? left[index] : "<none>") ≠ \(index < right.count ? right[index] : "<none>")"
+    }
+    return "same"
 }
 
 private func at(_ value: String) -> Date { ISO8601DateFormatter().date(from: value)! }

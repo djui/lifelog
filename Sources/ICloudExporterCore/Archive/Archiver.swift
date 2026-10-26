@@ -148,7 +148,9 @@ public final class Archiver {
                     let result = Merger.merge(index, observation)
                     appending = true
                     try ledger.append(result.events)
-                    for event in result.events {
+                    // Apply what the ledger holds (millisecond timestamps), not the in-memory values, so pages
+                    // rendered now are byte for byte what `rebuild` renders from a fresh fold.
+                    for event in try JSONLines.stored(result.events) {
                         index.apply(event)
                         touched.insert(event.key)
                         if let newKey = event.newKey { touched.insert(newKey) }
@@ -158,7 +160,7 @@ public final class Archiver {
                     let record = RunRecord(run: runID, source: source, start: now, end: end(), complete: read.complete, scope: read.scope.summary,
                                            counts: result.counts, warnings: warnings, mode: mode.rawValue, digest: read.digest, timeZone: timeZone.identifier)
                     try runLog.append([record])
-                    records.append(record)
+                    records += try JSONLines.stored([record])
                     summary.lines.append(.init(source: source, mode: mode, complete: read.complete, counts: result.counts, warnings: warnings))
                     do { try read.commit?() } catch {
                         summary.lines[summary.lines.count - 1].warnings.append("could not save the read position: \(error.localizedDescription)")
@@ -171,7 +173,7 @@ public final class Archiver {
                 summary.failures[source] = message
                 let record = RunRecord(run: runID, source: source, start: now, end: end(), complete: false, scope: "read failed",
                                        warnings: [message], mode: mode.rawValue, timeZone: timeZone.identifier)
-                do { try runLog.append([record]); records.append(record) } catch {
+                do { try runLog.append([record]); records += try JSONLines.stored([record]) } catch {
                     ExportLog.info("could not log the failed \(source.rawValue) run: \(error.localizedDescription)")
                 }
             }
