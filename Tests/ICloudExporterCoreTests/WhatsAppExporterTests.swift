@@ -159,7 +159,158 @@ final class WhatsAppExporterTests: XCTestCase {
         XCTAssertEqual(config.whatsappChats, 20)
     }
 
+    func testArchiveReadsAllChatsAndEveryMessageType() throws {
+        let source = try fixture()
+        let at = now.addingTimeInterval(-3_600)
+        var sql = archiveSchema
+        for index in 1...25 {
+            sql += archiveChat(id: index, name: "Chat \(index)")
+        }
+        sql += archiveChat(id: 30, name: "Removed", removed: 1)
+        sql += archiveChat(id: 31, name: "Hidden", hidden: 1)
+        sql += archiveChat(id: 32, name: "Broadcast", type: 2)
+        sql += archiveMessage(id: 1, chat: 1, at: at, type: 0, text: "plain", stanza: "A1", sent: at.addingTimeInterval(-2))
+        sql += archiveMessage(id: 2, chat: 1, at: at.addingTimeInterval(1), type: 7, text: "https://example.com", stanza: "A2")
+        sql += archiveMessage(id: 3, chat: 1, at: at.addingTimeInterval(2), type: 6, text: "Sam joined", stanza: "A3")
+        sql += archiveMessage(id: 4, chat: 1, at: at.addingTimeInterval(3), type: 14, text: "leftover", stanza: "A4")
+        sql += archiveMessage(id: 5, chat: 1, at: at.addingTimeInterval(4), type: 1, text: nil, stanza: "A5")
+        sql += archiveMessage(id: 6, chat: 1, at: at.addingTimeInterval(5), type: 99, text: nil, stanza: "A6")
+        sql += archiveMessage(id: 7, chat: 1, at: at.addingTimeInterval(6), type: 42, text: "poll", stanza: "A7")
+        sql += archiveMessage(id: 8, chat: 1, at: now.addingTimeInterval(-40 * 86_400), type: 0, text: "too old", stanza: "A8")
+        sql += archiveMessage(id: 9, chat: 30, at: at, type: 0, text: "in removed chat", stanza: "A1")
+        sql += archiveMessage(id: 10, chat: 32, at: at, type: 0, text: "blast", stanza: "B1")
+        try exec(source.appendingPathComponent("ChatStorage.sqlite"), sql)
+
+        let since = now.addingTimeInterval(-30 * 86_400)
+        let result = try WhatsAppExporter.fetchArchive(since: since, now: now, sourceDirectory: source)
+        XCTAssertTrue(result.warnings.isEmpty)
+        XCTAssertEqual(result.records.count, 27)
+        XCTAssertFalse(result.records.contains { $0.title == "Broadcast" })
+        XCTAssertEqual(result.records.first { $0.title == "Removed" }?.isRemoved, true)
+        XCTAssertEqual(result.records.first { $0.title == "Removed" }?.messages.map(\.stanzaID), ["A1"])
+        XCTAssertEqual(result.records.first { $0.title == "Hidden" }?.isHidden, true)
+        XCTAssertEqual(result.records.first { $0.title == "Chat 2" }?.isRemoved, false)
+        XCTAssertEqual(result.records.first { $0.title == "Chat 2" }?.messages.count, 0)
+
+        let messages = try XCTUnwrap(result.records.first { $0.id == "1" }).messages
+        XCTAssertEqual(messages.map(\.stanzaID), ["A1", "A2", "A3", "A4", "A5", "A6", "A7"])
+        XCTAssertEqual(messages.map(\.rawType), [0, 7, 6, 14, 1, 99, 42])
+        XCTAssertEqual(messages.map(\.text), ["plain", "https://example.com", "Sam joined", nil, nil, nil, "poll"])
+        XCTAssertEqual(messages.map(\.placeholder), [nil, nil, nil, nil, "Image", "Message type 99", nil])
+        XCTAssertEqual(messages.map(\.isRevoked), [false, false, false, true, false, false, false])
+        XCTAssertEqual(messages.map(\.isSystem), [false, false, true, false, false, false, false])
+        XCTAssertEqual(messages[0].sentDate, at.addingTimeInterval(-2))
+        XCTAssertNil(messages[1].sentDate)
+    }
+
+    func testExportStillSkipsRevokedMessagesAndRemovedChats() throws {
+        let source = try fixture()
+        let at = now.addingTimeInterval(-60)
+        var sql = archiveSchema
+        sql += archiveChat(id: 1, name: "Links")
+        sql += archiveMessage(id: 1, chat: 1, at: at, type: 0, text: "plain", stanza: "A1")
+        sql += archiveMessage(id: 2, chat: 1, at: at.addingTimeInterval(1), type: 7, text: "https://example.com", stanza: "A2")
+        sql += archiveMessage(id: 3, chat: 1, at: at.addingTimeInterval(2), type: 14, text: nil, stanza: "A3")
+        sql += archiveChat(id: 2, name: "Removed", removed: 1)
+        sql += archiveMessage(id: 4, chat: 2, at: at, type: 0, text: "gone", stanza: "B1")
+        try exec(source.appendingPathComponent("ChatStorage.sqlite"), sql)
+
+        let result = try WhatsAppExporter.fetch(now: now, pastDays: 30, sourceDirectory: source)
+        XCTAssertEqual(result.records.map(\.title), ["Links"])
+        XCTAssertEqual(result.records[0].messages.map(\.text), ["plain", "https://example.com"])
+        XCTAssertNil(result.records[0].messages[0].stanzaID)
+        XCTAssertNil(result.records[0].isRemoved)
+    }
+
+    func testArchiveToleratesMissingOptionalColumns() throws {
+        let source = try fixture()
+        let at = now.addingTimeInterval(-60)
+        try exec(source.appendingPathComponent("ChatStorage.sqlite"), """
+        CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZSESSIONTYPE INTEGER, ZCONTACTJID VARCHAR);
+        CREATE TABLE ZWAMESSAGE (
+          Z_PK INTEGER PRIMARY KEY, ZISFROMME INTEGER, ZMESSAGETYPE INTEGER, ZCHATSESSION INTEGER,
+          ZMESSAGEDATE TIMESTAMP, ZTEXT VARCHAR
+        );
+        INSERT INTO ZWACHATSESSION VALUES (1, 1, '120363@g.us');
+        INSERT INTO ZWAMESSAGE VALUES (1, 0, 0, 1, \(apple(at)), 'hello');
+        """)
+        let result = try WhatsAppExporter.fetchArchive(since: now.addingTimeInterval(-86_400), now: now, sourceDirectory: source)
+        XCTAssertEqual(result.records.count, 1)
+        XCTAssertEqual(result.records[0].title, "120363")
+        XCTAssertEqual(result.records[0].isRemoved, false)
+        XCTAssertEqual(result.records[0].isHidden, false)
+        XCTAssertEqual(result.records[0].messages.map(\.text), ["hello"])
+        XCTAssertNil(result.records[0].messages[0].stanzaID)
+        XCTAssertNil(result.records[0].messages[0].sentDate)
+        XCTAssertEqual(result.records[0].messages[0].sender, "120363")
+        XCTAssertEqual(result.warnings.count, 1)
+        XCTAssertTrue(result.warnings[0].contains("stanza"))
+    }
+
+    func testArchiveRejectsMissingRequiredColumns() throws {
+        let source = try fixture()
+        try exec(source.appendingPathComponent("ChatStorage.sqlite"), """
+        CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZSESSIONTYPE INTEGER, ZCONTACTJID VARCHAR);
+        CREATE TABLE ZWAMESSAGE (Z_PK INTEGER PRIMARY KEY, ZCHATSESSION INTEGER, ZMESSAGEDATE TIMESTAMP);
+        """)
+        XCTAssertThrowsError(try WhatsAppExporter.fetchArchive(since: now.addingTimeInterval(-86_400), now: now, sourceDirectory: source)) { error in
+            XCTAssertEqual(error as? WhatsAppExportError, .unrecognizedSchema)
+        }
+    }
+
+    func testHasColumn() throws {
+        let source = try fixture()
+        let url = source.appendingPathComponent("ChatStorage.sqlite")
+        try exec(url, schema)
+        let db = try SQLiteDB(url: url)
+        defer { db.close() }
+        XCTAssertTrue(try db.hasColumn(table: "ZWAMESSAGE", column: "ZTEXT"))
+        XCTAssertFalse(try db.hasColumn(table: "ZWAMESSAGE", column: "ZSTANZAID"))
+        XCTAssertFalse(try db.hasColumn(table: "NOPE", column: "ZTEXT"))
+    }
+
+    func testArchiveKindsMatchProbedTypes() {
+        XCTAssertEqual([0, 7, 41, 42, 43].map(WhatsAppExporter.archiveKind), Array(repeating: .text, count: 5))
+        XCTAssertEqual([6, 10].map(WhatsAppExporter.archiveKind), [.system, .system])
+        XCTAssertEqual(WhatsAppExporter.archiveKind(for: 14), .revoked)
+        XCTAssertEqual(WhatsAppExporter.archiveKind(for: 8), .media("Document"))
+        XCTAssertEqual(WhatsAppExporter.archiveKind(for: 15), .other(15))
+    }
+
     func fixture() throws -> URL { try temporaryDirectory() }
+
+    var archiveSchema: String {
+        """
+        CREATE TABLE ZWACHATSESSION (
+          Z_PK INTEGER PRIMARY KEY, ZHIDDEN INTEGER, ZREMOVED INTEGER, ZSESSIONTYPE INTEGER,
+          ZLASTMESSAGEDATE TIMESTAMP, ZCONTACTJID VARCHAR, ZPARTNERNAME VARCHAR
+        );
+        CREATE TABLE ZWAMESSAGE (
+          Z_PK INTEGER PRIMARY KEY, ZISFROMME INTEGER, ZMESSAGETYPE INTEGER, ZCHATSESSION INTEGER,
+          ZGROUPMEMBER INTEGER, ZMEDIAITEM INTEGER, ZMESSAGEDATE TIMESTAMP, ZSENTDATE TIMESTAMP, ZFROMJID VARCHAR,
+          ZPUSHNAME VARCHAR, ZTEXT VARCHAR, ZSTANZAID VARCHAR
+        );
+        CREATE TABLE ZWAGROUPMEMBER (
+          Z_PK INTEGER PRIMARY KEY, ZCONTACTNAME VARCHAR, ZFIRSTNAME VARCHAR, ZMEMBERJID VARCHAR
+        );
+        """
+    }
+
+    func archiveChat(id: Int, name: String, hidden: Int = 0, removed: Int = 0, type: Int = 0) -> String {
+        """
+        INSERT INTO ZWACHATSESSION (Z_PK, ZHIDDEN, ZREMOVED, ZSESSIONTYPE, ZLASTMESSAGEDATE, ZCONTACTJID, ZPARTNERNAME)
+        VALUES (\(id), \(hidden), \(removed), \(type), \(apple(now)), '\(id)@s.whatsapp.net', '\(name)');
+        """
+    }
+
+    func archiveMessage(id: Int, chat: Int, at: Date, type: Int, text: String?, stanza: String, sent: Date? = nil) -> String {
+        let value = text.map { "'\($0)'" } ?? "NULL"
+        let sentValue = sent.map(apple) ?? "NULL"
+        return """
+        INSERT INTO ZWAMESSAGE (Z_PK, ZISFROMME, ZMESSAGETYPE, ZCHATSESSION, ZMESSAGEDATE, ZSENTDATE, ZTEXT, ZSTANZAID)
+        VALUES (\(id), 1, \(type), \(chat), \(apple(at)), \(sentValue), \(value), '\(stanza)');
+        """
+    }
 
     var schema: String {
         """

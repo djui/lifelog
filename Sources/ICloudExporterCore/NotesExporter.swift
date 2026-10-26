@@ -39,7 +39,8 @@ public enum NotesExporter {
     }
     static let fetchTimeout: TimeInterval = 15 * 60
 
-    public static func fetch() async throws -> SourceResult<NoteRecord> {
+    /// `export` leaves `includeLocked` off; the archive keeps locked notes as body-less stubs.
+    public static func fetch(includeLocked: Bool = false) async throws -> SourceResult<NoteRecord> {
         guard let script = scriptURL else {
             throw NotesExportError.missingScript
         }
@@ -47,7 +48,7 @@ public enum NotesExporter {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let result = try decode(run(script: script, timeout: fetchTimeout))
+                    let result = try decode(run(script: script, timeout: fetchTimeout), includeLocked: includeLocked)
                     ExportLog.info("notes: read \(result.records.count) notes")
                     continuation.resume(returning: result)
                 } catch {
@@ -145,7 +146,7 @@ public enum NotesExporter {
         }
     }
 
-    static func decode(_ data: Data) throws -> SourceResult<NoteRecord> {
+    static func decode(_ data: Data, includeLocked: Bool = false) throws -> SourceResult<NoteRecord> {
         struct Payload: Decodable {
             let records: [WireNote]
             let warnings: [String]
@@ -155,9 +156,11 @@ public enum NotesExporter {
             let title: String
             let account: String
             let folder: String
+            let folderID: String?
             let created: String?
             let modified: String?
             let bodyHTML: String
+            let locked: Bool?
         }
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -178,9 +181,16 @@ public enum NotesExporter {
                 }
                 return NoteRecord(id: item.id, title: item.title, account: item.account,
                                   folder: item.folder, created: try date(item.created),
-                                  modified: try date(item.modified), bodyHTML: item.bodyHTML)
+                                  modified: try date(item.modified), bodyHTML: item.bodyHTML,
+                                  isLocked: item.locked, folderID: item.folderID)
             }
-            return SourceResult(records: records, warnings: payload.warnings)
+            if includeLocked { return SourceResult(records: records, warnings: payload.warnings) }
+            let unlocked = records.filter { $0.isLocked != true }
+            var warnings = payload.warnings
+            if unlocked.count < records.count {
+                warnings.insert("\(records.count - unlocked.count) password-protected note(s) were skipped.", at: 0)
+            }
+            return SourceResult(records: unlocked, warnings: warnings)
         } catch {
             throw NotesExportError.invalidOutput
         }

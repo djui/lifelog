@@ -92,6 +92,26 @@ final class NotesTests: XCTestCase {
         XCTAssertEqual(result.warnings.count, 1)
     }
 
+    func testDecodeKeepsLockedStubsOnlyForTheArchive() throws {
+        let data = Data("""
+        {"records":[
+          {"id":"open","title":"Open","account":"Local","folder":"Diary","folderID":"f-1","created":null,"modified":null,"bodyHTML":"<p>x</p>","locked":false},
+          {"id":"locked","title":"Secret","account":"Local","folder":"Diary","folderID":"f-2","created":"2026-09-07T08:00:00Z","modified":"2026-09-07T09:00:00Z","bodyHTML":"","locked":true}
+        ],"warnings":["1 embedded image was omitted."]}
+        """.utf8)
+        let archive = try NotesExporter.decode(data, includeLocked: true)
+        XCTAssertEqual(archive.records.map(\.id), ["open", "locked"])
+        XCTAssertEqual(archive.records.map(\.isLocked), [false, true])
+        XCTAssertEqual(archive.records.map(\.folderID), ["f-1", "f-2"])
+        XCTAssertEqual(archive.records[1].bodyHTML, "")
+        XCTAssertNotNil(archive.records[1].modified)
+        XCTAssertEqual(archive.warnings, ["1 embedded image was omitted."])
+
+        let export = try NotesExporter.decode(data)
+        XCTAssertEqual(export.records.map(\.id), ["open"])
+        XCTAssertEqual(export.warnings, ["1 password-protected note(s) were skipped.", "1 embedded image was omitted."])
+    }
+
     func testDecodeRejectsPartialOrInvalidSnapshots() {
         for json in [
             "not JSON",
@@ -154,6 +174,16 @@ final class NotesTests: XCTestCase {
             "1 password-protected note(s) were skipped.",
             "1 embedded image was omitted."
         ])
+        XCTAssertEqual(result.records.first?.folderID, "child")
+
+        let archive = try NotesExporter.decode(NotesExporter.run(script: script, timeout: 10), includeLocked: true)
+        let stub = try XCTUnwrap(archive.records.first { $0.id == "locked" })
+        XCTAssertEqual(stub.isLocked, true)
+        XCTAssertEqual(stub.bodyHTML, "")
+        XCTAssertEqual(stub.folder, "Parent/Child")
+        XCTAssertEqual(stub.folderID, "child")
+        XCTAssertNotNil(stub.created)
+        XCTAssertEqual(archive.warnings, ["1 embedded image was omitted."])
     }
 
     func testProcessTimeoutWithoutAccessingNotes() throws {

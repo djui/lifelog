@@ -8,8 +8,9 @@ public final class EventKitExporter {
 
     public init() {}
 
-    public func reminders(completedSince: Date) async throws -> SourceResult<ReminderRecord> {
-        guard completedSince.timeIntervalSinceReferenceDate.isFinite else {
+    /// `completedSince == nil` reads every completed reminder (archive backfill and full sweeps).
+    public func reminders(completedSince: Date?) async throws -> SourceResult<ReminderRecord> {
+        guard completedSince?.timeIntervalSinceReferenceDate.isFinite ?? true else {
             throw ExportError.message("The completed-reminder cutoff must be a valid date.")
         }
         try await requireAccess(to: .reminder)
@@ -21,7 +22,7 @@ public final class EventKitExporter {
         )
         ExportLog.info("reminders: fetching incomplete")
         let active = try await fetchReminders(matching: incomplete)
-        ExportLog.info("reminders: fetching completed since \(ISO8601DateFormatter().string(from: completedSince))")
+        ExportLog.info("reminders: fetching completed since \(completedSince.map { ISO8601DateFormatter().string(from: $0) } ?? "the beginning")")
         let completed = try await fetchReminders(matching: recentlyCompleted)
 
         // A reminder can change completion state between the two queries.
@@ -36,7 +37,10 @@ public final class EventKitExporter {
                 completionDate: reminder.completionDate,
                 due: try EventKitDates.reminderDue(reminder.dueDateComponents),
                 priority: Int(reminder.priority),
-                url: reminder.url?.absoluteString
+                url: reminder.url?.absoluteString,
+                externalID: reminder.calendarItemExternalIdentifier,
+                created: reminder.creationDate,
+                modified: reminder.lastModifiedDate
             )
             records[record.id] = record
         }
@@ -45,51 +49,62 @@ public final class EventKitExporter {
         return result
     }
 
+    /// Windows longer than EventKit's four-year predicate limit are read in chunks.
     public func events(from: Date, to: Date) async throws -> SourceResult<CalendarRecord> {
-        try EventKitDates.validateEventRange(from: from, to: to)
+        let chunks = try EventKitDates.eventChunks(from: from, to: to)
         try await requireAccess(to: .event)
-        try Task.checkCancellation()
         let formatter = ISO8601DateFormatter()
-        ExportLog.info("calendar: fetching events from \(formatter.string(from: from)) to \(formatter.string(from: to))")
-        let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
         let defaultTimeZone = TimeZone.current
-        let events = store.events(matching: predicate)
-        ExportLog.info("calendar: mapping \(events.count) EventKit events")
-        let records = try events.map { event in
-            guard let start = event.startDate, let end = event.endDate,
-                  start.timeIntervalSinceReferenceDate.isFinite,
-                  end.timeIntervalSinceReferenceDate.isFinite, end >= start else {
-                throw ExportError.message("Calendar returned an event with invalid dates; the export was not replaced.")
-            }
-            // EventKit returns floating/all-day dates in the system's default zone.
-            // Civil dates preserve the actual day even when JSON encodes the instants in UTC.
-            let zone = event.isAllDay ? defaultTimeZone : event.timeZone
-            let occurrence = event.hasRecurrenceRules || event.isDetached ? (event.occurrenceDate ?? start) : nil
-            return CalendarRecord(
-                id: EventKitDates.occurrenceIdentifier(
-                    itemID: event.calendarItemIdentifier,
-                    occurrence: occurrence,
-                    allDayTimeZone: event.isAllDay ? defaultTimeZone : nil
-                ),
-                title: event.title ?? "",
-                calendar: event.calendar?.title ?? "",
-                start: start,
-                end: end,
-                isAllDay: event.isAllDay,
-                timeZone: zone?.identifier,
-                location: event.location,
-                notes: event.notes,
-                url: event.url?.absoluteString,
-                startDate: event.isAllDay ? EventKitDates.civilDate(start, in: defaultTimeZone) : nil,
-                endDate: event.isAllDay ? EventKitDates.civilDate(end, in: defaultTimeZone) : nil
-            )
+        var batches: [[CalendarRecord]] = []
+        for chunk in chunks {
+            try Task.checkCancellation()
+            ExportLog.info("calendar: fetching events from \(formatter.string(from: chunk.from)) to \(formatter.string(from: chunk.to))")
+            let predicate = store.predicateForEvents(withStart: chunk.from, end: chunk.to, calendars: nil)
+            let events = store.events(matching: predicate)
+            ExportLog.info("calendar: mapping \(events.count) EventKit events")
+            batches.append(try events.map { try record(for: $0, defaultTimeZone: defaultTimeZone) })
         }
         try Task.checkCancellation()
-        let result = SourceResult(records: records.sorted {
+        let result = SourceResult(records: EventKitDates.merged(batches).sorted {
             $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start
         })
         ExportLog.info("calendar: read \(result.records.count) events")
         return result
+    }
+
+    private func record(for event: EKEvent, defaultTimeZone: TimeZone) throws -> CalendarRecord {
+        guard let start = event.startDate, let end = event.endDate,
+              start.timeIntervalSinceReferenceDate.isFinite,
+              end.timeIntervalSinceReferenceDate.isFinite, end >= start else {
+            throw ExportError.message("Calendar returned an event with invalid dates; the export was not replaced.")
+        }
+        // EventKit returns floating/all-day dates in the system's default zone.
+        // Civil dates preserve the actual day even when JSON encodes the instants in UTC.
+        let zone = event.isAllDay ? defaultTimeZone : event.timeZone
+        let occurrence = event.hasRecurrenceRules || event.isDetached ? (event.occurrenceDate ?? start) : nil
+        return CalendarRecord(
+            id: EventKitDates.occurrenceIdentifier(
+                itemID: event.calendarItemIdentifier,
+                occurrence: occurrence,
+                allDayTimeZone: event.isAllDay ? defaultTimeZone : nil
+            ),
+            title: event.title ?? "",
+            calendar: event.calendar?.title ?? "",
+            start: start,
+            end: end,
+            isAllDay: event.isAllDay,
+            timeZone: zone?.identifier,
+            location: event.location,
+            notes: event.notes,
+            url: event.url?.absoluteString,
+            startDate: event.isAllDay ? EventKitDates.civilDate(start, in: defaultTimeZone) : nil,
+            endDate: event.isAllDay ? EventKitDates.civilDate(end, in: defaultTimeZone) : nil,
+            externalID: event.calendarItemExternalIdentifier,
+            status: EventKitLabels.status(event.status),
+            participation: event.attendees?.first(where: \.isCurrentUser).map { EventKitLabels.participation($0.participantStatus) },
+            created: event.creationDate,
+            modified: event.lastModifiedDate
+        )
     }
 
     private func requireAccess(to entity: EKEntityType) async throws {
@@ -159,6 +174,30 @@ enum EventKitDates {
         }
     }
 
+    static let maxEventSpan: TimeInterval = 1_460 * 86_400
+
+    /// Splits a window into back-to-back spans EventKit will not truncate.
+    static func eventChunks(from: Date, to: Date) throws -> [(from: Date, to: Date)] {
+        guard from.timeIntervalSinceReferenceDate.isFinite, to.timeIntervalSinceReferenceDate.isFinite, to > from else {
+            throw ExportError.message("The calendar window must have increasing, valid dates.")
+        }
+        var chunks: [(from: Date, to: Date)] = []
+        var start = from
+        while start < to {
+            let end = min(start.addingTimeInterval(maxEventSpan), to)
+            try validateEventRange(from: start, to: end)
+            chunks.append((start, end))
+            start = end
+        }
+        return chunks
+    }
+
+    /// Events overlapping a chunk boundary come back from both chunks; keep the first copy.
+    static func merged(_ batches: [[CalendarRecord]]) -> [CalendarRecord] {
+        var seen = Set<String>()
+        return batches.joined().filter { seen.insert($0.id).inserted }
+    }
+
     static func civilDate(_ date: Date, in timeZone: TimeZone) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -218,6 +257,32 @@ enum EventKitDates {
         let sign = offset < 0 ? "-" : "+"
         let absoluteOffset = abs(offset)
         return local + String(format: "%@%02d:%02d", sign, absoluteOffset / 3_600, (absoluteOffset % 3_600) / 60)
+    }
+}
+
+enum EventKitLabels {
+    static func status(_ status: EKEventStatus) -> String {
+        switch status {
+        case .none: return "none"
+        case .confirmed: return "confirmed"
+        case .tentative: return "tentative"
+        case .canceled: return "cancelled"
+        @unknown default: return "unknown"
+        }
+    }
+
+    static func participation(_ status: EKParticipantStatus) -> String {
+        switch status {
+        case .unknown: return "unknown"
+        case .pending: return "pending"
+        case .accepted: return "accepted"
+        case .declined: return "declined"
+        case .tentative: return "tentative"
+        case .delegated: return "delegated"
+        case .completed: return "completed"
+        case .inProcess: return "in-process"
+        @unknown default: return "unknown"
+        }
     }
 }
 
