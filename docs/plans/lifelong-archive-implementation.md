@@ -1,6 +1,6 @@
 # Lifelong archive: implementation plan
 
-Status: plan only, nothing implemented. Date: 2026-10-26. Design and decisions: [lifelong-archive.md](lifelong-archive.md).
+Status: implemented; every phase, including the phase 7 docs, is merged to `main`. User guide: the [Lifelong archive section of the README](../../README.md#lifelong-archive). Date: 2026-10-26. Design and decisions: [lifelong-archive.md](lifelong-archive.md).
 
 Each phase is one PR that leaves `main` releasable. `export` (the mirror) keeps its current behaviour throughout. All new behaviour lives behind a new `archive` command writing to a **new, separate folder**.
 
