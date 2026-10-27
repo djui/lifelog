@@ -20,8 +20,10 @@ jobs:
         run: |
           output="$RUNNER_TEMP/icloud-exporter-demo"
           ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export --output "$output" --demo
-          test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/Contents/Resources/notes.js
-          codesign -dv --verbose=4 dist/icloud-exporter.app 2>&1 | grep -q "Identifier=com.djui.icloud-exporter"
+          # Newer toolchains nest bundle resources under Contents/Resources; older ones keep them flat.
+          bundle=dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle
+          test -f "$bundle/notes.js" || test -f "$bundle/Contents/Resources/notes.js"
+          codesign -dv --verbose=4 dist/icloud-exporter.app 2>&1 | grep "Identifier=com.djui.icloud-exporter" >/dev/null
           test -s "$output/_index.md"
           test -s "$output/Reminders/current-reminders.md"
           test -s "$output/Reminders/completed-recent.md"
@@ -54,7 +56,7 @@ jobs:
           test -s "$output/_viewer/data/manifest.js"
           grep -q "^window.ARCHIVE.load(" "$output/_viewer/data/manifest.js"
           test -n "$(ls "$output"/_viewer/data/whatsapp/*.js 2>/dev/null)"
-          test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/Contents/Resources/viewer/index.html
+          test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/viewer/index.html || test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/Contents/Resources/viewer/index.html
           ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter rebuild --output "$output" | grep -q "0 pages written"
           # A second demo into the same folder is refused, so demo data never mixes with a real archive.
           if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --demo; then exit 1; fi
