@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Command: String, CaseIterable {
-    case export, archive, rebuild, verify
+    case export, archive, rebuild, verify, open
 }
 
 public struct Config {
@@ -18,14 +18,16 @@ public struct Config {
     public var rescanDays = 100
     public var fullSweepDays = 7
     public var notify = false
+    /// Write the HTML viewer under `_viewer/` (archive, rebuild).
+    public var viewer = true
     /// Where ChatGPT and Claude export zips are picked up. Zips stay where they are.
     public var aiInbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
 
-    static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify"], .rebuild: [], .verify: []]
+    static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify", "--no-viewer"], .rebuild: ["--no-viewer"], .verify: [], .open: []]
     static let valued: [Command: Set<String>] = [
         .export: ["--output", "--sources", "--past-days", "--future-days", "--completed-days"],
         .archive: ["--output", "--sources", "--backfill-since", "--rescan-days", "--full-sweep-days", "--ai-inbox"],
-        .rebuild: ["--output"], .verify: ["--output"],
+        .rebuild: ["--output"], .verify: ["--output"], .open: ["--output"],
     ]
 
     public init(arguments: [String]) throws {
@@ -42,6 +44,7 @@ public struct Config {
             if Self.flags[command]!.contains(option) {
                 if option == "--demo" { demo = true }
                 if option == "--notify" { notify = true }
+                if option == "--no-viewer" { viewer = false }
                 continue
             }
             guard Self.valued[command]!.contains(option) else { throw ExportError.message("Unknown option: \(option)") }
@@ -98,8 +101,9 @@ public struct Config {
     Usage:
       icloud-exporter export --output <directory> [options]
       icloud-exporter archive --output <directory> [options]
-      icloud-exporter rebuild --output <directory>
+      icloud-exporter rebuild --output <directory> [--no-viewer]
       icloud-exporter verify --output <directory>
+      icloud-exporter open --output <directory>
 
     Commands:
       export      Mirror the sources into Markdown snapshots
@@ -107,6 +111,7 @@ public struct Config {
                   and revoked items are marked, never dropped
       rebuild     Regenerate every archive page from the ledger
       verify      Check the archive ledger, run log and index cache
+      open        Open the archive's offline HTML viewer in the default browser
 
     Export options:
       --sources notes,reminders,calendar,whatsapp   Sources to export (default: all)
@@ -126,6 +131,8 @@ public struct Config {
       --notify                            Notify when WhatsApp capture falls behind, reads keep
                                           failing, or an AI export is due
       --demo                              Archive synthetic examples; no local app access
+      --no-viewer                         Skip the HTML viewer in _viewer/ and remove an earlier
+                                          one (also for rebuild)
 
       --help                              Show this help
       --version                           Show version
@@ -137,7 +144,8 @@ public struct Config {
 
     Archive layout: _index.md, Timeline/ and _Disappeared/ by month, WhatsApp/<chat>/,
     Calendar/ and Reminders/ by month, Notes/ by account and folder, and ChatGPT/,
-    Claude/ and ClaudeCode/ by the month a chat started. The ledger in .archive/ is
-    the source of truth; pages are views of it.
+    Claude/ and ClaudeCode/ by the month a chat started, plus _viewer/index.html, an
+    offline viewer for coverage, disappeared items, search and the timeline. The
+    ledger in .archive/ is the source of truth; pages are views of it.
     """
 }

@@ -23,6 +23,7 @@ struct ICloudExporter {
             case .archive: try await runArchive(config)
             case .rebuild: try runRebuild(config)
             case .verify: try runVerify(config)
+            case .open: try runOpen(config)
             }
         } catch {
             stderr("\(label) failed: \(error.localizedDescription)")
@@ -91,6 +92,7 @@ struct ICloudExporter {
             throw ExportError.message("The demo needs an empty archive folder.")
         }
         let archiver = Archiver(ledger: ledger, runLog: runLog, index: index, options: ArchiveOptions(config), cacheRoot: cacheRoot)
+        archiver.viewer = config.viewer
 
         var summary = ArchiveSummary()
         if config.demo {
@@ -152,7 +154,7 @@ struct ICloudExporter {
         let now = Date()
         // A demo archive has a synthetic clock, so it gets no health check (as in `archive --demo`).
         let health = demo ? [] : Health.warnings(runLog: runLog, now: now)
-        let summary = try Archiver.rebuild(ledger, runLog: runLog, index: index, now: now, health: health)
+        let summary = try Archiver.rebuild(ledger, runLog: runLog, index: index, now: now, health: health, viewer: config.viewer)
         print("Rebuild complete: \(summary.written) pages written, \(summary.unchanged) unchanged, \(summary.removed) removed, from \(index.items.count) items.")
         print("Output: \(root.path)")
     }
@@ -168,6 +170,22 @@ struct ICloudExporter {
         for problem in report.problems { stderr("Problem: \(problem)") }
         print("Verified \(report.events) ledger events, \(report.runs) run log lines, \(report.items) items: \(report.problems.isEmpty ? "no problems" : "\(report.problems.count) problem\(report.problems.count == 1 ? "" : "s")").")
         if !report.problems.isEmpty { exit(1) }
+    }
+
+    /// Opens `_viewer/index.html` in the default browser. The viewer is plain files, so nothing keeps running.
+    static func runOpen(_ config: Config) throws {
+        let root = config.output.resolvingSymlinksInPath().standardizedFileURL
+        let page = root.appendingPathComponent("_viewer/index.html")
+        guard FileManager.default.fileExists(atPath: page.path) else {
+            throw ExportError.message("No viewer in \(root.path). Run archive or rebuild without --no-viewer first.")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [page.path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw ExportError.message("Could not open \(page.path).") }
+        print("Opened \(page.path)")
     }
 
     static func read(_ source: ExportSource, window: (start: Date, end: Date, completedSince: Date), eventKit: EventKitExporter?, config: Config, now: Date) async throws -> ExportSnapshot {

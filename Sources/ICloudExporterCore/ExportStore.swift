@@ -21,7 +21,7 @@ public struct ExportSummary {
 /// Only files recorded in the manifest may be replaced or removed. `export` mirrors sources into one folder;
 /// the archive keeps its pages (views of the ledger) in another layout with its own manifest under `.archive/`.
 public final class ExportStore {
-    /// `group` is a source (`notes`) or another top-level page group (`timeline`, `disappeared`, `index`).
+    /// `group` is a source (`notes`) or another top-level page group (`timeline`, `disappeared`, `index`, `viewer`).
     struct Entry: Codable, Equatable {
         var group: String; var digest: String
         enum CodingKeys: String, CodingKey { case group = "source", digest }
@@ -66,6 +66,10 @@ public final class ExportStore {
 
     func allows(_ group: String, path: String) -> Bool {
         if group == "index" { return path == "_index.md" }
+        // The HTML viewer: its static app, data scripts and styles.
+        if group == ViewerData.group {
+            return layout == .archive && path.hasPrefix(ViewerData.folder + "/") && [".html", ".js", ".css"].contains { path.hasSuffix($0) }
+        }
         guard let directory = Self.directory(of: group), path.hasPrefix(directory + "/") else { return false }
         return layout == .archive || ExportSource.exportable.contains { $0.rawValue == group }
     }
@@ -216,7 +220,7 @@ public final class ExportStore {
     func validate(_ manifest: Manifest, mode: String) throws {
         guard manifest.version == 1, manifest.mode == mode else { throw ExportError.message("Output belongs to a different export version or demo/live mode. Choose a separate directory.") }
         for (path, entry) in manifest.files {
-            guard allows(entry.group, path: path), path.hasSuffix(".md"), entry.digest.count == 64,
+            guard allows(entry.group, path: path), path.hasSuffix(".md") || entry.group == ViewerData.group, entry.digest.count == 64,
                   entry.digest.allSatisfy({ $0.isHexDigit }) else { throw ExportError.message("Invalid managed file in export manifest.") }
             _ = try checked(path)
         }

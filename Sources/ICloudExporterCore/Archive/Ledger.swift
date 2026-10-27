@@ -63,13 +63,15 @@ public struct Ledger {
         }
     }
 
-    public func read() throws -> LedgerContents {
+    /// With `sources`, only those sources' files are read.
+    public func read(sources: Set<ArchiveSource>? = nil) throws -> LedgerContents {
         var contents = LedgerContents()
         var lines: [JSONLines.Line<LedgerEvent>] = []
         let manager = FileManager.default
         guard manager.fileExists(atPath: directory.path) else { return contents }
         for name in try manager.contentsOfDirectory(atPath: directory.path).sorted() where !name.hasPrefix(".") {
             guard let source = ArchiveSource(rawValue: name) else { contents.issues.append("ledger/\(name): unknown source, ignored"); continue }
+            if let sources, !sources.contains(source) { continue }
             let result = try JSONLines.read(LedgerEvent.self, in: directory.appendingPathComponent(name), label: "ledger/\(name)")
             contents.issues += result.issues
             for line in result.lines {
