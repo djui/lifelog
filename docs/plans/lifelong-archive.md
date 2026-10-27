@@ -1,6 +1,6 @@
 # Lifelong archive: never lose an item, mark what vanished
 
-Status: proposal, nothing implemented. Date: 2026-10-26. Implementation plan: [lifelong-archive-implementation.md](lifelong-archive-implementation.md).
+Status: implemented. Date: 2026-10-26. Implementation plan: [lifelong-archive-implementation.md](lifelong-archive-implementation.md). How to use it: the [Lifelong archive section of the README](../../README.md#lifelong-archive). Schema notes from phase 0 (V1–V7): [below](#schema-notes-phase-0-2026-10-26).
 
 ## 1. Where data is lost today
 
