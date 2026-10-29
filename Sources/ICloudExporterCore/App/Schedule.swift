@@ -45,14 +45,3 @@ public enum Schedule {
     }
 }
 
-/// The launchd agents from the README. While one is installed, the menu bar app leaves scheduling to it, so the
-/// same sources are not read twice.
-public enum LaunchAgents {
-    public static var directory: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents") }
-
-    /// Installed archive agents (`com.djui.icloud-exporter.archive*.plist`); the export agent does not count.
-    public static func archiveAgents(in directory: URL = directory) -> [String] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return names.filter { $0.hasPrefix("com.djui.icloud-exporter.archive") && $0.hasSuffix(".plist") }.sorted()
-    }
-}
