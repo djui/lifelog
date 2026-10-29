@@ -41,7 +41,7 @@ struct MenuBarApp: App {
             Divider()
             Button("Quit iCloud Exporter") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            Image(nsImage: MenuBarIcon.image(model.menu?.icon ?? .idle))
+            MenuBarLabel(icon: model.menu?.icon ?? .idle, spinner: model.spinner)
         }
         Settings {
             SettingsView(model: model)
@@ -60,6 +60,36 @@ struct MenuBarApp: App {
     static func short(_ text: String) -> String { text.count <= 90 ? text : String(text.prefix(89)) + "…" }
 }
 
+/// The icon alone observes the spinner, so turning it redraws the icon and not the menu.
+struct MenuBarLabel: View {
+    var icon: IconState
+    @ObservedObject var spinner: Spinner
+
+    var body: some View {
+        Image(nsImage: MenuBarIcon.image(icon, frame: icon == .running ? spinner.frame : 0))
+    }
+}
+
+/// Steps the running icon's spinner, so a long run (a full Notes read takes minutes) doesn't look stuck. It ticks
+/// only while a run is in progress, and not at all with Reduce Motion on.
+@MainActor
+final class Spinner: ObservableObject {
+    @Published private(set) var frame = 0
+    private var timer: Timer?
+
+    func spin(_ on: Bool) {
+        let on = on && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard on != (timer != nil) else { return }
+        timer?.invalidate()
+        timer = nil
+        frame = 0
+        guard on else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+            Task { @MainActor in self.map { $0.frame = ($0.frame + 1) % MenuBarIcon.spinnerFrames } }
+        }
+    }
+}
+
 @MainActor
 final class MenuModel: ObservableObject {
     static let folderKey = "archiveFolder"
@@ -69,13 +99,18 @@ final class MenuModel: ObservableObject {
     @Published private(set) var opensAtLogin = SMAppService.mainApp.status == .enabled
     let defaults: UserDefaults
     let scheduler: Scheduler
+    let spinner = Spinner()
     private var forward: AnyCancellable?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         folder = defaults.string(forKey: Self.folderKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
         scheduler = Scheduler(defaults: defaults)
-        forward = scheduler.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        forward = scheduler.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+            // Sent before the change: look at the new state once it is set.
+            DispatchQueue.main.async { self.map { $0.spinner.spin($0.scheduler.running != nil) } }
+        }
         scheduler.start()
         if started { scheduler.folder = folder }
     }

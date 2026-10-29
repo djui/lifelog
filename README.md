@@ -304,7 +304,7 @@ The menu shows the next run, the source being read, each source's last read (✓
 | Icon | Meaning |
 |---|---|
 | Cloud in a tray | All fine |
-| Circular arrow over the tray | A run is in progress |
+| Turning arrow over the tray | A run is in progress; it turns, unless Reduce Motion is on |
 | Dot badge | A health warning or a source whose last read failed; open the menu for the reason |
 | Dashed tray | Paused |
 | Exclamation mark in the tray | The last run archived nothing, such as a run that was stopped for taking too long |
