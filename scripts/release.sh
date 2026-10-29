@@ -14,7 +14,7 @@ profile=${LIFELOG_NOTARY_PROFILE:-lifelog-notary}
 
 LIFELOG_RELEASE=1 ./scripts/build.sh
 app="$project_dir/dist/Lifelog.app"
-if ! codesign -dv "$app" 2>&1 | grep -q "Authority=Developer ID Application"; then
+if ! codesign -dv --verbose=2 "$app" 2>&1 | grep -q "Authority=Developer ID Application"; then
   echo "Notarization needs a Developer ID Application signature." >&2
   exit 1
 fi
