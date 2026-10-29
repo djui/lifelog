@@ -80,7 +80,7 @@ public struct Config {
     }
 
     /// Local midnight of a strict `YYYY-MM-DD` date.
-    static func civilDate(_ value: String) -> Date? {
+    public static func civilDate(_ value: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)

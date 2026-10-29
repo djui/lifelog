@@ -309,6 +309,13 @@ The menu shows the next run, the source being read, each source's last read (✓
 | Dashed tray | Paused |
 | Exclamation mark in the tray | The last run archived nothing, such as a run that was stopped for taking too long |
 
+**Settings…** (⌘,) holds everything the launchd agents' arguments did:
+
+- **General:** the archive folder, Open at login, and notifications.
+- **Sources:** each source on the frequent or hourly schedule, or off; how often each schedule runs; run on wake; wait for power before hourly runs on battery; the folder with ChatGPT and Claude exports.
+- **Permissions:** Calendar, Reminders, Notes automation and Full Disk Access (for WhatsApp), each with a button that opens the right System Settings pane. Checking never shows a prompt.
+- **Advanced:** history from (`--backfill-since`), re-read days (`--rescan-days`), full re-read interval (`--full-sweep-days`), the HTML viewer (`--no-viewer`), and Verify Archive, Rebuild Pages and Show Ledger in Finder.
+
 The app sends the same notifications as `archive --notify` (WhatsApp falling behind, repeated read failures, an AI export due), each once, so `--notify` isn't needed with the app.
 
 While an archive launchd agent (`com.djui.icloud-exporter.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Remove the agents with `launchctl bootout` and delete their plists to let the app take over.
