@@ -4,6 +4,8 @@ A local, read-only exporter for Apple Notes, Reminders, Calendar, and local What
 
 Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-party package dependencies.
 
+**The easiest way to run it is the menu bar app.** Build it, open `dist/icloud-exporter.app`, choose an empty archive folder and click **Start Archiving Here…**. It then keeps a [lifelong archive](#lifelong-archive) on a schedule and shows what it does in the menu bar; see [Menu bar app](#menu-bar-app). The CLI below does the same from Terminal or launchd.
+
 ## Build and try it
 
 ```sh
@@ -85,6 +87,8 @@ Choose any writable output directory. It can be a local folder or a folder synce
 - This is a one-way export. Editing Markdown does not update Notes, Reminders, Calendar, or WhatsApp.
 
 ## Optional scheduling with launchd
+
+This schedules the `export` mirror. For the archive, use the [menu bar app](#menu-bar-app). Once the archive has run for a while, the app offers **Stop the Export Agent…** to retire this agent.
 
 Scheduling is manual. First complete a successful foreground export using `dist/icloud-exporter.app/Contents/MacOS/icloud-exporter`, the same path you will schedule. Then:
 
@@ -318,11 +322,15 @@ The menu shows the next run, the source being read, each source's last read (✓
 
 The app sends the same notifications as `archive --notify` (WhatsApp falling behind, repeated read failures, an AI export due), each once, so `--notify` isn't needed with the app.
 
-While an archive launchd agent (`com.djui.icloud-exporter.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Remove the agents with `launchctl bootout` and delete their plists to let the app take over.
+While an archive launchd agent (`com.djui.icloud-exporter.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Choose **Take Over from launchd…** in the menu to switch; see [Headless scheduling with launchd](#headless-scheduling-with-launchd).
+
+The app reads the run log as it grows (only new lines on each check) and keeps the last 60 days plus what the health checks need, so it stays light however old the archive gets.
 
 The packaged binary starts the menu bar app only when it has no arguments and wasn't started from a terminal. With arguments, or typed in Terminal, it stays the CLI.
 
-### Scheduling the archive
+### Headless scheduling with launchd
+
+The [menu bar app](#menu-bar-app) schedules the archive for you. Use launchd instead only to run without the app. If you set up the agents below before the app, open the app and choose **Take Over from launchd…**: it stops the agents, moves their plists to `~/Library/Application Support/com.djui.icloud-exporter/Disabled LaunchAgents` (move them back to restore them), and takes over their folder, sources, schedules and options.
 
 Use two launchd agents that share one archive folder. They share its lock, so when one is running, the other fails fast and tries again at its next interval.
 

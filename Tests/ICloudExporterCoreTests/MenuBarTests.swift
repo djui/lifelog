@@ -251,3 +251,146 @@ final class SpinnerFrameTests: XCTestCase {
         XCTAssertEqual(signature(MenuBarIcon.image(.idle, frame: 3)), signature(MenuBarIcon.image(.idle)))
     }
 }
+
+final class RunLogTailTests: XCTestCase {
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+
+    func folder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    func record(_ source: ArchiveSource, _ start: Date, complete: Bool = true, digest: String? = nil) -> RunRecord {
+        RunRecord(run: "r\(Int(start.timeIntervalSince1970))", source: source, start: start, end: start + 20, complete: complete, scope: "test",
+                  warnings: complete ? [] : ["read failed"], mode: "rescan", digest: digest, timeZone: "Europe/Berlin")
+    }
+
+    func testReadsOnlyAppendedLinesAndWaitsForTornOnes() throws {
+        let root = try folder()
+        let log = RunLog(root: root, host: "mac1")
+        try log.append([record(.notes, t0)])
+        let tail = RunLogTail(log)
+        tail.update(now: t0)
+        XCTAssertEqual(tail.records.map(\.source), [.notes])
+
+        try log.append([record(.whatsapp, t0 + 60)])
+        let file = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: log.directory, includingPropertiesForKeys: nil).first)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        let line = try JSONLines.encoder.encode(record(.calendar, t0 + 120))
+        try handle.write(contentsOf: line.prefix(30))
+        tail.update(now: t0 + 200)
+        XCTAssertEqual(tail.records.map(\.source), [.notes, .whatsapp], "a torn line waits")
+        try handle.write(contentsOf: line.dropFirst(30) + Data([0x0A]))
+        try handle.close()
+        tail.update(now: t0 + 200)
+        XCTAssertEqual(tail.records.map(\.source), [.notes, .whatsapp, .calendar])
+        XCTAssertEqual(tail.records, try log.read().records)
+    }
+
+    func testAReplacedLogIsReadAgain() throws {
+        let root = try folder()
+        let log = RunLog(root: root, host: "mac1")
+        try log.append([record(.notes, t0), record(.whatsapp, t0 + 60)])
+        let tail = RunLogTail(log)
+        tail.update(now: t0)
+        try FileManager.default.removeItem(at: log.directory)
+        try log.append([record(.reminders, t0 + 120)])
+        tail.update(now: t0 + 200)
+        XCTAssertEqual(tail.records.map(\.source), [.reminders])
+    }
+
+    /// 100 days of runs: the trimmed records give the app the same health, menu and schedule as the whole log.
+    func testTrimmedRecordsAnswerLikeTheWholeLog() throws {
+        let root = try folder()
+        let log = RunLog(root: root, host: "mac1")
+        var all: [RunRecord] = []
+        for step in 0..<(100 * 24) {
+            let at = t0 + Double(step) * 3600
+            // A WhatsApp gap of two days on day 80, and Calendar failing for the last 5 hours.
+            if !(80 * 24..<82 * 24).contains(step) { all.append(record(.whatsapp, at)) }
+            all.append(record(.calendar, at, complete: step < 100 * 24 - 5))
+            if step % 24 == 0 { all.append(record(.notes, at)) }
+            if step == 10 * 24 { all.append(record(.chatgpt, at, digest: "abc")) }
+        }
+        try log.append(all)
+        let now = t0 + 100 * 86_400
+        let tail = RunLogTail(log)
+        tail.update(now: now)
+        let full = try log.read().records
+        XCTAssertLessThan(tail.records.count, full.count * 2 / 3, "older records are dropped")
+
+        let health = Health.report(full, now: now, whatsAppRunning: true, timeZone: TimeZone(identifier: "UTC")!)
+        let trimmed = Health.report(tail.records, now: now, whatsAppRunning: true, timeZone: TimeZone(identifier: "UTC")!)
+        XCTAssertEqual(trimmed.warnings, health.warnings)
+        XCTAssertEqual(trimmed.notices, health.notices)
+        XCTAssertFalse(health.warnings.isEmpty, "the fixture has warnings to compare: \(health.warnings)")
+
+        func menu(_ records: [RunRecord]) -> MenuStatus {
+            MenuStatus.make(records: records, now: now, running: nil, reading: nil, pausedUntil: nil, failure: nil, health: [], time: { "\($0)" })
+        }
+        XCTAssertEqual(menu(tail.records), menu(full))
+        for lane in Lane.all { XCTAssertEqual(Schedule.lastRun(lane, records: tail.records), Schedule.lastRun(lane, records: full)) }
+    }
+}
+
+final class LaunchAgentAdoptionTests: XCTestCase {
+    func folder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    func write(_ name: String, label: String, _ arguments: [String], interval: Int, in folder: URL) throws {
+        let plist: [String: Any] = ["Label": label, "ProgramArguments": ["/Apps/icloud-exporter.app/Contents/MacOS/icloud-exporter"] + arguments, "StartInterval": interval]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: folder.appendingPathComponent(name))
+    }
+
+    func testTheREADMEAgentsBecomeTheDefaultSchedules() throws {
+        let agents = try folder()
+        try write("com.djui.icloud-exporter.archive.plist", label: "com.djui.icloud-exporter.archive",
+                  ["archive", "--output", "/Users/me/Archive", "--sources", "whatsapp,reminders,calendar,claudecode", "--notify"], interval: 600, in: agents)
+        try write("com.djui.icloud-exporter.archive-slow.plist", label: "com.djui.icloud-exporter.archive-slow",
+                  ["archive", "--output", "/Users/me/Archive", "--sources", "notes,chatgpt,claude"], interval: 3600, in: agents)
+        try write("com.djui.icloud-exporter.plist", label: "com.djui.icloud-exporter", ["export", "--output", "/Users/me/Export"], interval: 600, in: agents)
+        try Data("not a plist".utf8).write(to: agents.appendingPathComponent("com.djui.icloud-exporter.broken.plist"))
+
+        let found = LaunchAgents.agents(in: agents)
+        XCTAssertEqual(found.map(\.label), ["com.djui.icloud-exporter.archive-slow", "com.djui.icloud-exporter.archive", "com.djui.icloud-exporter"])
+        XCTAssertEqual(found.map(\.isArchive), [true, true, false])
+        let adopted = try XCTUnwrap(LaunchAgents.adopt(found, into: AppSettings()))
+        XCTAssertEqual(adopted.folder.path, "/Users/me/Archive")
+        XCTAssertEqual(adopted.settings.lanes, Lane.all, "the same split, sources and intervals as the app's defaults")
+        XCTAssertTrue(adopted.settings.notify)
+    }
+
+    func testAgentOptionsCarryOverAndUnreadSourcesAreOff() throws {
+        let agents = try folder()
+        try write("com.djui.icloud-exporter.archive.plist", label: "a", ["archive", "--output", "/A", "--sources", "whatsapp,notes", "--backfill-since", "2012-03-04",
+                                                                         "--rescan-days", "30", "--full-sweep-days", "14", "--ai-inbox", "/Exports", "--no-viewer"],
+                  interval: 900, in: agents)
+        var base = AppSettings()
+        base.notify = false
+        let adopted = try XCTUnwrap(LaunchAgents.adopt(LaunchAgents.agents(in: agents), into: base))
+        let settings = adopted.settings
+        XCTAssertEqual(settings.lanes.map(\.id), ["frequent"])
+        XCTAssertEqual(settings.lanes[0].sources, [.whatsapp, .notes])
+        XCTAssertEqual(settings.frequentMinutes, 15)
+        XCTAssertEqual(settings.backfillSince, "2012-03-04")
+        XCTAssertEqual([settings.rescanDays, settings.fullSweepDays], [30, 14])
+        XCTAssertEqual(settings.aiInbox?.path, "/Exports")
+        XCTAssertFalse(settings.viewer)
+        XCTAssertFalse(settings.notify, "no agent had --notify, so the app's choice stays")
+        let config = try Config(arguments: settings.arguments(for: settings.lanes[0], output: adopted.folder))
+        XCTAssertEqual(config.rescanDays, 30)
+    }
+
+    func testNoArchiveAgentNothingToAdopt() throws {
+        let agents = try folder()
+        try write("com.djui.icloud-exporter.plist", label: "e", ["export", "--output", "/E"], interval: 600, in: agents)
+        XCTAssertNil(LaunchAgents.adopt(LaunchAgents.agents(in: agents), into: AppSettings()))
+    }
+}

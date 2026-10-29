@@ -22,6 +22,9 @@ struct MenuBarApp: App {
             if model.folder != nil, !model.started {
                 Button("Start Archiving Here…") { model.startHere() }
             }
+            if let title = model.takeOverTitle {
+                Button(title) { model.takeOver() }
+            }
             Divider()
             Button("Run Now") { model.scheduler.runNow() }.keyboardShortcut("r")
                 .disabled(model.folder == nil || model.scheduler.running != nil || !model.scheduler.agents.isEmpty)
@@ -145,7 +148,7 @@ final class MenuModel: ObservableObject {
         guard folder != nil else { return ["Choose an archive folder to start archiving."] }
         guard started else { return ["No archive in this folder yet."] }
         if !scheduler.agents.isEmpty {
-            return ["Runs come from launchd (\(scheduler.agents.count) archive agent\(scheduler.agents.count == 1 ? "" : "s")); remove them to let the app schedule."]
+            return ["Runs come from launchd (\(scheduler.agents.count) archive agent\(scheduler.agents.count == 1 ? "" : "s")). Take over to let the app schedule them."]
         }
         var lines: [String] = []
         if let lane = scheduler.running {
@@ -216,6 +219,85 @@ final class MenuModel: ObservableObject {
         }
         if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         opensAtLogin = service.status == .enabled
+    }
+
+    // MARK: launchd
+
+    /// Where taken-over agents are moved, so they can be restored by moving them back.
+    static var disabledAgents: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.djui.icloud-exporter/Disabled LaunchAgents")
+    }
+
+    /// The menu item for installed agents: take over archive agents, or stop the export agent once the archive runs.
+    var takeOverTitle: String? {
+        let agents = LaunchAgents.agents()
+        if agents.contains(where: \.isArchive) { return "Take Over from launchd…" }
+        return agents.isEmpty ? nil : "Stop the Export Agent…"
+    }
+
+    /// Unloads the agents, moves their plists aside and, for archive agents, adopts their folder, sources and
+    /// options, so the app schedules the same runs. The export agent goes too only when asked: running both for a
+    /// week is the README's advice before retiring `export`.
+    func takeOver() {
+        let agents = LaunchAgents.agents()
+        let archive = agents.filter(\.isArchive), export = agents.filter { !$0.isArchive }
+        guard !agents.isEmpty else { return }
+        let adopted = LaunchAgents.adopt(archive, into: AppSettings.load(defaults))
+        if let folder = adopted?.folder ?? folder, Scheduler.locked(folder) {
+            return alert("A run is in progress", "Try again when it has finished, in a minute or two.")
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        let names = (archive.isEmpty ? export : archive).map { "• \($0.label)" }.joined(separator: "\n")
+        let moved = "Their files move to ~/Library/Application Support/com.djui.icloud-exporter/Disabled LaunchAgents, so you can restore them."
+        if let adopted {
+            alert.messageText = "Take over from launchd?"
+            alert.informativeText = "iCloud Exporter will archive \(adopted.folder.lastPathComponent) on the same schedule, and stop these agents:\n\(names)\n\n\(moved)"
+            alert.addButton(withTitle: "Take Over")
+            if !export.isEmpty {
+                alert.showsSuppressionButton = true
+                alert.suppressionButton?.title = "Also stop the export agent (the archive replaces it)"
+                alert.suppressionButton?.state = .off
+            }
+        } else {
+            alert.messageText = "Stop the export agent?"
+            alert.informativeText = "The archive keeps everything the export mirror has, and more. Stop these agents:\n\(names)\n\n\(moved)"
+            alert.addButton(withTitle: "Stop Export Agent")
+        }
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let stopping = archive + (adopted == nil || alert.suppressionButton?.state == .on ? export : [])
+        var problems: [String] = []
+        for agent in stopping {
+            do { try Self.disable(agent) } catch { problems.append("\(agent.label): \(error.localizedDescription)") }
+        }
+        if let adopted {
+            adopted.settings.save(defaults)
+            // The agents already archived there, so the folder needs no Start Archiving Here.
+            defaults.set(adopted.folder.path, forKey: Self.folderKey)
+            defaults.set(adopted.folder.path, forKey: Self.startedKey)
+            folder = adopted.folder
+            scheduler.folder = adopted.folder
+        }
+        scheduler.tick()
+        objectWillChange.send()
+        if !problems.isEmpty { self.alert("Some agents could not be stopped", problems.joined(separator: "\n")) }
+    }
+
+    static func disable(_ agent: LaunchAgents.Agent) throws {
+        // Not loaded is fine: the plist is moved aside either way.
+        let launchctl = Process()
+        launchctl.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        launchctl.arguments = ["bootout", "gui/\(getuid())", agent.file.path]
+        launchctl.standardOutput = FileHandle.nullDevice
+        launchctl.standardError = FileHandle.nullDevice
+        try launchctl.run()
+        launchctl.waitUntilExit()
+        let manager = FileManager.default
+        try manager.createDirectory(at: disabledAgents, withIntermediateDirectories: true)
+        let target = disabledAgents.appendingPathComponent(agent.file.lastPathComponent)
+        try? manager.removeItem(at: target)
+        try manager.moveItem(at: agent.file, to: target)
     }
 
     func alert(_ title: String, _ message: String) {
