@@ -26,6 +26,8 @@ final class Scheduler: ObservableObject {
     @Published private(set) var agents: [String] = []
 
     var folder: URL? { didSet { tick() } }
+    /// The folder's run log, read as it grows.
+    private var tail: (folder: URL, log: RunLogTail)?
     private var attempted: [String: Date] = [:]
     private var requested: [Lane] = []
     private var timer: Timer?
@@ -72,7 +74,7 @@ final class Scheduler: ObservableObject {
         guard let folder else { return }
         let settings = settings
         let lanes = settings.lanes
-        records = (try? RunLog(root: folder, host: "app").read().records) ?? []
+        records = readRunLog(folder)
         lastRun = Dictionary(uniqueKeysWithValues: lanes.compactMap { lane in
             Schedule.lastRun(lane, records: records, attempted: attempted[lane.id]).map { (lane.id, $0) }
         })
@@ -96,7 +98,7 @@ final class Scheduler: ObservableObject {
             }
             running = nil
             reading = nil
-            let logged = ((try? RunLog(root: folder, host: "app").read().records) ?? []).contains { $0.start >= started - 1 }
+            let logged = readRunLog(folder).contains { $0.start >= started - 1 }
             failure = result.status == 0 || logged ? nil : result.problem ?? "The run archived nothing."
             tick()
         }
@@ -117,6 +119,13 @@ final class Scheduler: ObservableObject {
             await Notifier.send(report.notices, sentFile: sent, now: Date())
             notifying = false
         }
+    }
+
+    /// Only lines appended since the last check are read; see `RunLogTail`.
+    func readRunLog(_ folder: URL) -> [RunRecord] {
+        if tail?.folder != folder { tail = (folder, RunLogTail(RunLog(root: folder, host: "app"))) }
+        tail!.log.update()
+        return tail!.log.records
     }
 
     static var onBattery: Bool {
