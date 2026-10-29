@@ -91,3 +91,76 @@ final class ScheduleTests: XCTestCase {
         XCTAssertEqual(LaunchAgents.archiveAgents(in: folder), ["com.djui.icloud-exporter.archive-slow.plist"])
     }
 }
+
+final class MenuStatusTests: XCTestCase {
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+
+    func record(_ source: ArchiveSource, _ end: Date, complete: Bool = true, warning: String? = nil) -> RunRecord {
+        RunRecord(run: "r", source: source, start: end - 5, end: end, complete: complete, scope: "test", warnings: warning.map { [$0] } ?? [])
+    }
+
+    func status(_ records: [RunRecord], running: Lane? = nil, reading: ArchiveSource? = nil, paused: Date? = nil, failure: String? = nil,
+                health: [String] = []) -> MenuStatus {
+        MenuStatus.make(records: records, now: t0, running: running, reading: reading, pausedUntil: paused, failure: failure, health: health) {
+            "t+\(Int($0.timeIntervalSince(self.t0)))"
+        }
+    }
+
+    func testRowsShowEachSourcesNewestRead() {
+        let records = [record(.whatsapp, t0 - 600, complete: false, warning: "WhatsApp data could not be read."), record(.whatsapp, t0 - 1200),
+                       record(.notes, t0 - 60), record(.reminders, t0 - 30)]
+        let menu = status(records)
+        XCTAssertEqual(menu.sources.map(\.source), [.reminders, .whatsapp, .notes], "in reading order, only sources that ran")
+        XCTAssertEqual(menu.sources[0], SourceStatus(source: .reminders, state: .ok, detail: "t+-30"))
+        XCTAssertEqual(menu.sources[1], SourceStatus(source: .whatsapp, state: .failed, detail: "t+-600: WhatsApp data could not be read."))
+        XCTAssertEqual(menu.icon, .attention, "a failing source needs attention")
+    }
+
+    func testIconPicksTheMostUrgentState() {
+        let ok = [record(.reminders, t0 - 30)]
+        XCTAssertEqual(status(ok).icon, .idle)
+        XCTAssertEqual(status(ok, health: ["No complete WhatsApp read for 21 h."]).icon, .attention)
+        XCTAssertEqual(status(ok, failure: "The run took too long and was stopped.", health: ["x"]).icon, .failed)
+        XCTAssertEqual(status(ok, paused: t0 + 60, failure: "x").icon, .paused)
+        XCTAssertEqual(status(ok, paused: t0 - 60).icon, .idle, "a pause that ended")
+        XCTAssertEqual(status(ok, running: .frequent, paused: t0 + 60).icon, .running, "Run Now while paused")
+    }
+
+    func testReadingSourceAndFailureAreShown() {
+        let menu = status([record(.reminders, t0 - 30)], running: .frequent, reading: .whatsapp, failure: "Could not start", health: ["Health"])
+        XCTAssertEqual(menu.sources.last, SourceStatus(source: .whatsapp, state: .reading, detail: "reading…"))
+        XCTAssertEqual(menu.warnings, ["Last run failed: Could not start", "Health"])
+    }
+
+    func testProgressLinesRoundTripAndIgnoreOtherOutput() throws {
+        let step = ArchiveProgress(.reading, .whatsapp)
+        XCTAssertEqual(step.line, #"{"progress":"reading","source":"whatsapp"}"#)
+        XCTAssertEqual(ArchiveProgress.parse(step.line), step)
+        XCTAssertEqual(ArchiveProgress.parse(#"{"progress":"pages"}"#), ArchiveProgress(.pages))
+        XCTAssertNil(ArchiveProgress.parse("whatsapp (rescan): 2 added"))
+        XCTAssertNil(ArchiveProgress.parse(#"{"progress":"unknown"}"#))
+        XCTAssertTrue(try Config(arguments: ["archive", "--output", "/tmp/a", "--progress"]).progress)
+        XCTAssertThrowsError(try Config(arguments: ["rebuild", "--output", "/tmp/a", "--progress"]))
+    }
+
+    func testEveryIconStateLooksDifferent() throws {
+        var seen: [String: IconState] = [:]
+        for state in IconState.allCases {
+            let image = MenuBarIcon.image(state)
+            XCTAssertTrue(image.isTemplate)
+            let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 36, pixelsHigh: 36, bitsPerSample: 8, samplesPerPixel: 4,
+                                                     hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            rep.size = image.size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            image.draw(in: NSRect(origin: .zero, size: image.size))
+            NSGraphicsContext.restoreGraphicsState()
+            let signature = (0..<36).flatMap { y in (0..<36).map { x in (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 ? "1" : "0" } }.joined()
+            XCTAssertNil(seen[signature], "\(state) looks like \(seen[signature].map(\.rawValue) ?? "")")
+            seen[signature] = state
+            if let folder = ProcessInfo.processInfo.environment["ICON_PREVIEW_DIR"] {
+                try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(state.rawValue).png"))
+            }
+        }
+    }
+}

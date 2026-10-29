@@ -20,10 +20,12 @@ public struct Config {
     public var notify = false
     /// Write the HTML viewer under `_viewer/` (archive, rebuild).
     public var viewer = true
+    /// Print `ArchiveProgress` lines on stdout, for the menu bar app.
+    public var progress = false
     /// Where ChatGPT and Claude export zips are picked up. Zips stay where they are.
     public var aiInbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
 
-    static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify", "--no-viewer"], .rebuild: ["--no-viewer"], .verify: [], .open: []]
+    static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify", "--no-viewer", "--progress"], .rebuild: ["--no-viewer"], .verify: [], .open: []]
     static let valued: [Command: Set<String>] = [
         .export: ["--output", "--sources", "--past-days", "--future-days", "--completed-days"],
         .archive: ["--output", "--sources", "--backfill-since", "--rescan-days", "--full-sweep-days", "--ai-inbox"],
@@ -45,6 +47,7 @@ public struct Config {
                 if option == "--demo" { demo = true }
                 if option == "--notify" { notify = true }
                 if option == "--no-viewer" { viewer = false }
+                if option == "--progress" { progress = true }
                 continue
             }
             guard Self.valued[command]!.contains(option) else { throw ExportError.message("Unknown option: \(option)") }
@@ -135,6 +138,7 @@ public struct Config {
       --demo                              Archive synthetic examples; no local app access
       --no-viewer                         Skip the HTML viewer in _viewer/ and remove an earlier
                                           one (also for rebuild)
+      --progress                          Print one JSON line per step on stdout (used by the app)
 
       --help                              Show this help
       --version                           Show version

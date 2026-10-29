@@ -13,6 +13,12 @@ struct MenuBarApp: App {
         MenuBarExtra {
             Text(model.folder.map { "Archive: \($0.lastPathComponent)" } ?? "No archive folder chosen")
             ForEach(model.status, id: \.self) { Text($0) }
+            if let menu = model.menu {
+                ForEach(menu.sources, id: \.source) { row in
+                    Label("\(row.source.displayName): \(Self.short(row.detail))", systemImage: Self.symbol(row.state))
+                }
+                ForEach(menu.warnings, id: \.self) { Label(Self.short($0), systemImage: "exclamationmark.triangle") }
+            }
             if model.folder != nil, !model.started {
                 Button("Start Archiving Here…") { model.startHere() }
             }
@@ -34,9 +40,20 @@ struct MenuBarApp: App {
             Divider()
             Button("Quit iCloud Exporter") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {
-            Image(nsImage: MenuBarIcon.image())
+            Image(nsImage: MenuBarIcon.image(model.menu?.icon ?? .idle))
         }
     }
+
+    static func symbol(_ state: SourceStatus.State) -> String {
+        switch state {
+        case .ok: return "checkmark.circle"
+        case .reading: return "arrow.triangle.2.circlepath"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+
+    /// Menu items don't wrap; long warnings are cut, and Show Log has the rest.
+    static func short(_ text: String) -> String { text.count <= 90 ? text : String(text.prefix(89)) + "…" }
 }
 
 @MainActor
@@ -93,15 +110,20 @@ final class MenuModel: ObservableObject {
         }
         var lines: [String] = []
         if let lane = scheduler.running {
-            lines.append("Archiving \(lane.sources.map(\.displayName).joined(separator: ", "))…")
+            lines.append("Archiving \((scheduler.reading.map { [$0] } ?? lane.sources).map(\.displayName).joined(separator: ", "))…")
         } else if let paused = scheduler.pausedUntil {
             lines.append("Paused until \(Self.time(paused))")
         } else {
             lines.append(scheduler.next.map { "Next run \(Self.time($0))" } ?? "Starting a run…")
         }
-        for lane in Lane.all { lines.append("\(lane.name) (\(Int(lane.interval / 60)) min): " + (scheduler.lastRun[lane.id].map(Self.time) ?? "not run yet")) }
-        if let problem = scheduler.problem { lines.append("Last run: \(problem)") }
         return lines
+    }
+
+    /// Source rows, warnings and the icon state, once the app schedules runs in an archive.
+    var menu: MenuStatus? {
+        guard started, scheduler.agents.isEmpty else { return nil }
+        return MenuStatus.make(records: scheduler.records, now: Date(), running: scheduler.running, reading: scheduler.reading,
+                               pausedUntil: scheduler.pausedUntil, failure: scheduler.failure, health: scheduler.health, time: Self.time)
     }
 
     /// `14:31`, or `28 Oct, 14:31` when not today.

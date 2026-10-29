@@ -9,11 +9,19 @@ import ICloudExporterCore
 @MainActor
 final class Scheduler: ObservableObject {
     static let pausedKey = "pausedUntil"
+    /// Notifications are on unless this is false (a setting in a later version).
+    static let notifyKey = "notify"
 
     @Published private(set) var running: Lane?
+    /// The source the running lane reads now, from the child's `--progress` lines.
+    @Published private(set) var reading: ArchiveSource?
     @Published private(set) var lastRun: [String: Date] = [:]
-    /// The last run's problem, such as a source that could not be read; nil after a clean run.
-    @Published private(set) var problem: String?
+    @Published private(set) var records: [RunRecord] = []
+    /// A run that archived nothing (it could not start, timed out, or was refused); sources that failed in a run show
+    /// in the run log instead.
+    @Published private(set) var failure: String?
+    /// The same warnings as the "Health" section of `_index.md`.
+    @Published private(set) var health: [String] = []
     @Published private(set) var pausedUntil: Date?
     /// Installed launchd archive agents. While there are any, they do the scheduling.
     @Published private(set) var agents: [String] = []
@@ -22,6 +30,7 @@ final class Scheduler: ObservableObject {
     private var attempted: [String: Date] = [:]
     private var requested: [Lane] = []
     private var timer: Timer?
+    private var notifying = false
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -59,10 +68,11 @@ final class Scheduler: ObservableObject {
     func tick() {
         agents = LaunchAgents.archiveAgents()
         guard let folder else { return }
-        let records = (try? RunLog(root: folder, host: "app").read().records) ?? []
+        records = (try? RunLog(root: folder, host: "app").read().records) ?? []
         lastRun = Dictionary(uniqueKeysWithValues: Lane.all.compactMap { lane in
             Schedule.lastRun(lane, records: records, attempted: attempted[lane.id]).map { (lane.id, $0) }
         })
+        checkHealth(folder)
         if let pausedUntil, pausedUntil <= Date() { pause(for: nil); return }
         guard running == nil, agents.isEmpty else { return }
         let due = requested + Schedule.due(Lane.all, now: Date(), last: lastRun, pausedUntil: pausedUntil).filter { !requested.contains($0) }
@@ -70,13 +80,35 @@ final class Scheduler: ObservableObject {
         // A run from Terminal holds the lock: try again at the next tick.
         guard !Self.locked(folder) else { return }
         requested.removeAll { $0 == lane }
-        attempted[lane.id] = Date()
+        let started = Date()
+        attempted[lane.id] = started
         running = lane
         Task {
-            let result = await Runner.run(lane.arguments(output: folder), timeout: lane.interval * 3)
+            let result = await Runner.run(lane.arguments(output: folder) + ["--progress"], timeout: lane.interval * 3) { step in
+                Task { @MainActor in self.reading = step.progress == .reading ? step.source : nil }
+            }
             running = nil
-            problem = result.problem
+            reading = nil
+            let logged = ((try? RunLog(root: folder, host: "app").read().records) ?? []).contains { $0.start >= started - 1 }
+            failure = result.status == 0 || logged ? nil : result.problem ?? "The run archived nothing."
             tick()
+        }
+    }
+
+    /// Health warnings for the menu, and their notifications (decision 17). Notices already sent by this app or by
+    /// `archive --notify` share one record in the archive's cache folder, so each is sent once. A demo archive's clock
+    /// is synthetic, so it gets no health check, as in the CLI.
+    func checkHealth(_ folder: URL) {
+        guard !records.isEmpty, !records.contains(where: { $0.mode == ReadMode.demo.rawValue }) else { health = []; return }
+        let report = Health.report(records, now: Date(), whatsAppRunning: Health.whatsAppRunning())
+        health = report.warnings
+        guard !notifying, !report.notices.isEmpty, defaults.object(forKey: Self.notifyKey) as? Bool ?? true,
+              let cacheRoot = ArchiveIndex.defaultCacheRoot else { return }
+        let sent = ArchiveIndex.cacheDirectory(for: Ledger(root: folder, host: "app"), in: cacheRoot).appendingPathComponent(SentNotices.fileName)
+        notifying = true
+        Task {
+            await Notifier.send(report.notices, sentFile: sent, now: Date())
+            notifying = false
         }
     }
 
@@ -94,7 +126,7 @@ enum Runner {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/iCloud Exporter/archive.log")
     }
 
-    static func run(_ arguments: [String], timeout: TimeInterval) async -> Result {
+    static func run(_ arguments: [String], timeout: TimeInterval, progress: @escaping @Sendable (ArchiveProgress) -> Void = { _ in }) async -> Result {
         guard let executable = Bundle.main.executableURL else { return Result(status: -1, problem: "The app's executable is missing.") }
         let output = openLog()
         output?.write(Data("\n== \(ISO8601DateFormatter().string(from: Date())) icloud-exporter \(arguments.joined(separator: " "))\n".utf8))
@@ -104,7 +136,7 @@ enum Runner {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        let lines = LastLines()
+        let lines = LastLines(progress: progress)
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             output?.write(data)
@@ -115,7 +147,7 @@ enum Runner {
                 pipe.fileHandleForReading.readabilityHandler = nil
                 let rest = pipe.fileHandleForReading.readDataToEndOfFile()
                 output?.write(rest)
-                lines.add(rest)
+                lines.add(rest + Data("\n".utf8))
                 try? output?.close()
                 let status = process.terminationStatus
                 let timedOut = process.terminationReason == .uncaughtSignal
@@ -145,15 +177,27 @@ enum Runner {
         return handle
     }
 
-    /// The child's last lines, to name what went wrong in the menu.
+    /// The child's output by line: progress steps go to `progress`, and the last lines name what went wrong.
     final class LastLines: @unchecked Sendable {
         private let lock = NSLock()
         private var lines: [String] = []
+        private var partial = ""
+        let progress: @Sendable (ArchiveProgress) -> Void
+
+        init(progress: @escaping @Sendable (ArchiveProgress) -> Void) { self.progress = progress }
 
         func add(_ data: Data) {
-            lock.lock(); defer { lock.unlock() }
-            lines += String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+            lock.lock()
+            var parts = (partial + String(decoding: data, as: UTF8.self)).components(separatedBy: "\n")
+            partial = parts.removeLast()
+            let complete = parts.filter { !$0.isEmpty }
+            var steps: [ArchiveProgress] = []
+            for line in complete {
+                if let step = ArchiveProgress.parse(line) { steps.append(step) } else { lines.append(line) }
+            }
             lines = Array(lines.suffix(20))
+            lock.unlock()
+            steps.forEach(progress)
         }
 
         /// The CLI names each failure as "Archive failed (source): …"; else the last line.

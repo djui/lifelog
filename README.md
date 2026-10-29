@@ -297,7 +297,19 @@ Choose the archive folder in the menu. In a folder that doesn't hold an archive 
 - **Frequent**, every 10 minutes: Reminders, Calendar, WhatsApp and Claude Code.
 - **Hourly**: ChatGPT and Claude exports, and Notes.
 
-It also runs right after the Mac wakes if a schedule is due. Each run is a separate `icloud-exporter archive` process, so a long Notes read never blocks the menu, and runs share the archive lock with any you start in Terminal. The menu shows the next run, the last run of each schedule and the last problem, and has **Run Now**, **Pause** and **Show Log** (`~/Library/Logs/iCloud Exporter/archive.log`). Turn on **Open at Login** so archiving continues after a restart.
+It also runs right after the Mac wakes if a schedule is due. Each run is a separate `icloud-exporter archive` process, so a long Notes read never blocks the menu, and runs share the archive lock with any you start in Terminal. Turn on **Open at Login** so archiving continues after a restart.
+
+The menu shows the next run, the source being read, each source's last read (✓, or ⚠ with the reason it failed) and the same health warnings as `_index.md`. It has **Run Now**, **Pause** and **Show Log** (`~/Library/Logs/iCloud Exporter/archive.log`). The menu bar icon changes with the state:
+
+| Icon | Meaning |
+|---|---|
+| Cloud in a tray | All fine |
+| Circular arrow over the tray | A run is in progress |
+| Dot badge | A health warning or a source whose last read failed; open the menu for the reason |
+| Dashed tray | Paused |
+| Exclamation mark in the tray | The last run archived nothing, such as a run that was stopped for taking too long |
+
+The app sends the same notifications as `archive --notify` (WhatsApp falling behind, repeated read failures, an AI export due), each once, so `--notify` isn't needed with the app.
 
 While an archive launchd agent (`com.djui.icloud-exporter.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Remove the agents with `launchctl bootout` and delete their plists to let the app take over.
 
