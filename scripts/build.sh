@@ -42,11 +42,19 @@ fi
 # The SwiftPM resource directory is not a codesignable bundle; it is sealed as
 # app resources. A certificate-backed signature keeps a stable TCC identity
 # across rebuilds; ad-hoc signatures still change with the binary contents.
+# Certificate builds use the hardened runtime, which notarization requires;
+# the entitlements keep Notes automation and Calendar/Reminders access working.
+# LIFELOG_RELEASE=1 adds the secure timestamp notarization also requires.
 if [ "$identity" = "-" ]; then
   codesign --force --sign - --identifier com.djui.lifelog "$app"
 else
+  timestamp=--timestamp=none
+  if [ "${LIFELOG_RELEASE:-}" = 1 ]; then
+    timestamp=--timestamp
+  fi
   codesign --force --sign "$identity" --identifier com.djui.lifelog \
-    --timestamp=none "$app"
+    --options runtime --entitlements "$project_dir/Support/Lifelog.entitlements" \
+    "$timestamp" "$app"
 fi
 
 ln -s "Lifelog.app/Contents/MacOS/lifelog" "$executable_link"
