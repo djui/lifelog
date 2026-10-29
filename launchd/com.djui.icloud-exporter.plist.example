@@ -14,7 +14,7 @@
     </array>
     <key>ProgramArguments</key>
     <array>
-        <string>/ABSOLUTE/PATH/TO/icloud-exporter/dist/icloud-exporter.app/Contents/MacOS/icloud-exporter</string>
+        <string>/ABSOLUTE/PATH/TO/lifelog/dist/Lifelog.app/Contents/MacOS/lifelog</string>
         <string>export</string>
         <string>--output</string>
         <string>/ABSOLUTE/PATH/TO/iCloud Export</string>
@@ -24,8 +24,8 @@
     <key>StartInterval</key>
     <integer>600</integer>
     <key>StandardOutPath</key>
-    <string>/ABSOLUTE/PATH/TO/Logs/icloud-exporter.log</string>
+    <string>/ABSOLUTE/PATH/TO/Logs/lifelog.log</string>
     <key>StandardErrorPath</key>
-    <string>/ABSOLUTE/PATH/TO/Logs/icloud-exporter.error.log</string>
+    <string>/ABSOLUTE/PATH/TO/Logs/lifelog.error.log</string>
 </dict>
 </plist>

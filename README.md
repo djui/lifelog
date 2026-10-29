@@ -1,34 +1,36 @@
-# icloud-exporter
+# Lifelog
 
-A local, read-only exporter for Apple Notes, Reminders, Calendar, and local WhatsApp chats. It writes Markdown files that you can browse, search, or provide to an AI tool of your choice. The exporter does not change your Apple or WhatsApp data and does not need an API key, web service, MCP server, or ChatGPT subscription.
+A local, read-only lifelong archive of your Apple Notes, Reminders and Calendar, your WhatsApp chats, ChatGPT and Claude exports, and Claude Code transcripts. It keeps everything it has ever seen, including messages that later expire or are deleted, as Markdown files plus an offline HTML viewer that you can browse, search, or give to an AI tool of your choice. Lifelog does not change your Apple or WhatsApp data and does not need an API key, web service, MCP server, or ChatGPT subscription. It also still has the original `export` mode, a plain Markdown mirror of Notes, Reminders, Calendar and WhatsApp.
+
+Lifelog was called icloud-exporter. The app keeps that version's bundle identifier (`com.djui.icloud-exporter`), so the permissions, settings and archives you already have keep working.
 
 Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-party package dependencies.
 
-**The easiest way to run it is the menu bar app.** Build it, open `dist/icloud-exporter.app`, choose an empty archive folder and click **Start Archiving Here…**. It then keeps a [lifelong archive](#lifelong-archive) on a schedule and shows what it does in the menu bar; see [Menu bar app](#menu-bar-app). The CLI below does the same from Terminal or launchd.
+**The easiest way to run it is the menu bar app.** Build it, open `dist/Lifelog.app`, choose an empty archive folder and click **Start Archiving Here…**. It then keeps a [lifelong archive](#lifelong-archive) on a schedule and shows what it does in the menu bar; see [Menu bar app](#menu-bar-app). The CLI below does the same from Terminal or launchd.
 
 ## Build and try it
 
 ```sh
 ./scripts/build.sh
-./dist/icloud-exporter --help
-./dist/icloud-exporter export --output "$PWD/demo-export" --demo
+./dist/lifelog --help
+./dist/lifelog export --output "$PWD/demo-export" --demo
 ```
 
-The demo uses synthetic data and does not request access to Notes, Reminders, Calendar, or WhatsApp. The build script packages a signed `dist/icloud-exporter.app` (required for macOS permissions) and a convenience symlink at `dist/icloud-exporter`. Keep the `.app` together when copying the exporter elsewhere.
+The demo uses synthetic data and does not request access to Notes, Reminders, Calendar, or WhatsApp. The build script packages a signed `dist/Lifelog.app` (required for macOS permissions) and a convenience symlink at `dist/lifelog`. Keep the `.app` together when copying the exporter elsewhere.
 
 To export your data, run the packaged app in the foreground first:
 
 ```sh
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export \
+./dist/Lifelog.app/Contents/MacOS/lifelog export \
   --output "$HOME/Documents/iCloud Export"
 ```
 
-macOS may ask for Calendar and Reminders access, permission to control Notes, and permission to access data from other apps (WhatsApp’s local database, and any export folder owned by another app such as Google Drive). Grant those prompts once for `iCloud Exporter`. If a scheduled run keeps asking, macOS is not recognizing a stable app identity: use the `.app` path above, not `swift run` or a rebuilt unsigned binary. Notes uses macOS automation; Calendar and Reminders use EventKit; WhatsApp is an unofficial read of WhatsApp Desktop’s `ChatStorage.sqlite`. If access was denied, review System Settings → Privacy & Security (Calendar, Reminders, Automation, and Full Disk Access) and add `icloud-exporter.app` there. Use that same `.app` for scheduled runs.
+macOS may ask for Calendar and Reminders access, permission to control Notes, and permission to access data from other apps (WhatsApp’s local database, and any export folder owned by another app such as Google Drive). Grant those prompts once for `Lifelog`. If a scheduled run keeps asking, macOS is not recognizing a stable app identity: use the `.app` path above, not `swift run` or a rebuilt unsigned binary. Notes uses macOS automation; Calendar and Reminders use EventKit; WhatsApp is an unofficial read of WhatsApp Desktop’s `ChatStorage.sqlite`. If access was denied, review System Settings → Privacy & Security (Calendar, Reminders, Automation, and Full Disk Access) and add `Lifelog.app` there. Use that same `.app` for scheduled runs.
 
 ## Options
 
 ```text
-icloud-exporter export --output <directory>
+lifelog export --output <directory>
   [--sources notes,reminders,calendar,whatsapp]
   [--past-days 365]
   [--future-days 365]
@@ -39,7 +41,7 @@ icloud-exporter export --output <directory>
 `--output` is required. All four sources are selected by default. Use a comma-separated list to limit the export:
 
 ```sh
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export \
+./dist/Lifelog.app/Contents/MacOS/lifelog export \
   --output "$HOME/Documents/iCloud Export" \
   --sources reminders,calendar \
   --past-days 30 --future-days 60 --completed-days 14
@@ -81,7 +83,7 @@ Choose any writable output directory. It can be a local folder or a folder synce
 - All password-protected Notes are skipped, even when currently unlocked. Embedded images, drawings, scans, and attachments are replaced with placeholders so the export stays small.
 - Notes formatting is converted to Markdown on a best-effort basis; the result is a text snapshot, not a full Notes backup.
 - Calendar export covers the requested time windows rather than the entire calendar history.
-- WhatsApp export reads the local WhatsApp Desktop database only (`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`). It is unofficial, does not talk to WhatsApp servers, and is not a full chat backup. It writes the 20 most recently active chats, limited to `--past-days`. Images, audio, video, and other attachments become placeholders; media files are not copied. Missing WhatsApp data is skipped with a warning. If the database exists but cannot be read, allow access to other apps’ data, or grant Full Disk Access to `icloud-exporter.app`.
+- WhatsApp export reads the local WhatsApp Desktop database only (`~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`). It is unofficial, does not talk to WhatsApp servers, and is not a full chat backup. It writes the 20 most recently active chats, limited to `--past-days`. Images, audio, video, and other attachments become placeholders; media files are not copied. Missing WhatsApp data is skipped with a warning. If the database exists but cannot be read, allow access to other apps’ data, or grant Full Disk Access to `Lifelog.app`.
 - Access depends on the macOS permissions and Apple accounts available to the user running the exporter. Scheduling does not bypass permission prompts. A bare or ad-hoc CLI has no stable identity, so macOS can ask again on every launchd run. The packaged, signed `.app` is the identity to grant. After rebuilding with a different bundle identifier or an ad-hoc signature, macOS treats the exporter as a new app and asks again.
 - Export folders from an older build are not recognized. Use a new output directory, or the run will refuse to overwrite files it does not manage.
 - This is a one-way export. Editing Markdown does not update Notes, Reminders, Calendar, or WhatsApp.
@@ -90,7 +92,7 @@ Choose any writable output directory. It can be a local folder or a folder synce
 
 This schedules the `export` mirror. For the archive, use the [menu bar app](#menu-bar-app). Once the archive has run for a while, the app offers **Stop the Export Agent…** to retire this agent.
 
-Scheduling is manual. First complete a successful foreground export using `dist/icloud-exporter.app/Contents/MacOS/icloud-exporter`, the same path you will schedule. Then:
+Scheduling is manual. First complete a successful foreground export using `dist/Lifelog.app/Contents/MacOS/lifelog`, the same path you will schedule. Then:
 
 1. Create `~/Library/LaunchAgents` if needed, then copy `launchd/com.djui.icloud-exporter.plist.example` to `~/Library/LaunchAgents/com.djui.icloud-exporter.plist`.
 2. Edit the copied file, replacing every placeholder with an absolute path for the `.app` executable, output directory, and log files. Leave `AssociatedBundleIdentifiers` as `com.djui.icloud-exporter`. Create the parent log directory if it does not exist. A plist does not expand `~`, `$HOME`, or shell commands. Escape XML characters such as `&` as `&amp;` when they occur in paths.
@@ -120,11 +122,11 @@ After editing an unloaded agent, validate it and load it again. Building the pro
 Try it with synthetic data first. The demo needs a new, empty folder:
 
 ```bash
-./dist/icloud-exporter archive --output "$PWD/demo-archive" --demo
+./dist/lifelog archive --output "$PWD/demo-archive" --demo
 ```
 
 ```bash
-./dist/icloud-exporter open --output "$PWD/demo-archive"
+./dist/lifelog open --output "$PWD/demo-archive"
 ```
 
 The demo replays a few runs, so it shows deleted, expired, revoked, edited and locked items. A demo folder and a real archive cannot be mixed: a real run refuses a demo folder, and the demo refuses a real one.
@@ -132,7 +134,7 @@ The demo replays a few runs, so it shows deleted, expired, revoked, edited and l
 ### Commands
 
 ```text
-icloud-exporter archive --output <directory>
+lifelog archive --output <directory>
   [--sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode]
   [--backfill-since 2000-01-01]
   [--rescan-days 100]
@@ -141,9 +143,9 @@ icloud-exporter archive --output <directory>
   [--notify]
   [--no-viewer]
   [--demo]
-icloud-exporter rebuild --output <directory> [--no-viewer]
-icloud-exporter verify --output <directory>
-icloud-exporter open --output <directory>
+lifelog rebuild --output <directory> [--no-viewer]
+lifelog verify --output <directory>
+lifelog open --output <directory>
 ```
 
 - `archive` reads the selected sources, records what changed, and rewrites the pages that show changed items. `--sources` defaults to `notes,reminders,calendar,whatsapp`. Add `chatgpt`, `claude` and `claudecode` to archive AI chats as well (see [Sources](#sources)).
@@ -237,7 +239,7 @@ A missing item plus a new item with the same container and the same text, seen i
 Each `archive` and `rebuild` writes a static viewer to `_viewer/`. It shows coverage per source, the disappeared items, a timeline and full-text search. It is plain HTML, JavaScript and data files, works without a network connection or server, and needs nothing to keep running. Open it with:
 
 ```bash
-./dist/icloud-exporter open --output "$HOME/Archive"
+./dist/lifelog open --output "$HOME/Archive"
 ```
 
 You can also double-click `_viewer/index.html`.
@@ -250,60 +252,60 @@ The run log records every read, so the archive can tell when capture falls behin
 - After three failed or partial reads in a row, a source is flagged.
 - ChatGPT and Claude are flagged after 45 days without a new export.
 
-With `--notify`, each of these is also posted once as a macOS notification from `iCloud Exporter`. Allow notifications when macOS asks.
+With `--notify`, each of these is also posted once as a macOS notification from `Lifelog`. Allow notifications when macOS asks.
 
 Run `verify` from time to time, and after anything unusual such as a sync conflict:
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter verify --output "$HOME/Archive"
+./dist/Lifelog.app/Contents/MacOS/lifelog verify --output "$HOME/Archive"
 ```
 
 ### First run
 
-Run the first archive in the foreground from Terminal.app, using the `.app` path, so that the macOS permission prompts appear and can be granted to `iCloud Exporter`. Archive one source at a time into a new, empty folder, so that a prompt or a slow backfill is easy to tell apart. The examples use `$HOME/Archive`. A Google Drive folder works the same way.
+Run the first archive in the foreground from Terminal.app, using the `.app` path, so that the macOS permission prompts appear and can be granted to `Lifelog`. Archive one source at a time into a new, empty folder, so that a prompt or a slow backfill is easy to tell apart. The examples use `$HOME/Archive`. A Google Drive folder works the same way.
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$HOME/Archive" --sources reminders
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources reminders
 ```
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$HOME/Archive" --sources calendar
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources calendar
 ```
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$HOME/Archive" --sources whatsapp
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources whatsapp
 ```
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$HOME/Archive" --sources claudecode
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources claudecode
 ```
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$HOME/Archive" --sources chatgpt,claude
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources chatgpt,claude
 ```
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$HOME/Archive" --sources notes
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources notes
 ```
 
 Each line of output names the source, the read mode and what changed. Then check the result:
 
 ```bash
-./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter verify --output "$HOME/Archive"
+./dist/Lifelog.app/Contents/MacOS/lifelog verify --output "$HOME/Archive"
 ```
 
 ### Menu bar app
 
-Open `dist/icloud-exporter.app` from Finder, or run `icloud-exporter app`, to put iCloud Exporter in the menu bar. It's the same app and binary as the CLI, so the permissions you granted carry over.
+Open `dist/Lifelog.app` from Finder, or run `lifelog app`, to put Lifelog in the menu bar. It's the same app and binary as the CLI, so the permissions you granted carry over.
 
 Choose the archive folder in the menu. In a folder that doesn't hold an archive yet, click **Start Archiving Here…** first; the app warns if the folder isn't empty. From then on the app archives on two schedules, the same split as the two launchd agents below:
 
 - **Frequent**, every 10 minutes: Reminders, Calendar, WhatsApp and Claude Code.
 - **Hourly**: ChatGPT and Claude exports, and Notes.
 
-It also runs right after the Mac wakes if a schedule is due. Each run is a separate `icloud-exporter archive` process, so a long Notes read never blocks the menu, and runs share the archive lock with any you start in Terminal. Turn on **Open at Login** so archiving continues after a restart.
+It also runs right after the Mac wakes if a schedule is due. Each run is a separate `lifelog archive` process, so a long Notes read never blocks the menu, and runs share the archive lock with any you start in Terminal. Turn on **Open at Login** so archiving continues after a restart.
 
-The menu shows the next run, the source being read, each source's last read (✓, or ⚠ with the reason it failed) and the same health warnings as `_index.md`. It has **Run Now**, **Pause** and **Show Log** (`~/Library/Logs/iCloud Exporter/archive.log`). The menu bar icon changes with the state:
+The menu shows the next run, the source being read, each source's last read (✓, or ⚠ with the reason it failed) and the same health warnings as `_index.md`. It has **Run Now**, **Pause** and **Show Log** (`~/Library/Logs/Lifelog/archive.log`). The menu bar icon changes with the state:
 
 | Icon | Meaning |
 |---|---|
