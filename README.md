@@ -290,7 +290,16 @@ Each line of output names the source, the read mode and what changed. Then check
 
 ### Menu bar app
 
-Open `dist/icloud-exporter.app` from Finder, or run `icloud-exporter app`, to put iCloud Exporter in the menu bar. It's the same app and binary as the CLI, so the permissions you granted carry over. For now the menu can open the viewer and the archive folder, choose that folder, and turn on Open at Login. Archive runs still come from the launchd agents below; the app will take over scheduling, status and settings in later versions.
+Open `dist/icloud-exporter.app` from Finder, or run `icloud-exporter app`, to put iCloud Exporter in the menu bar. It's the same app and binary as the CLI, so the permissions you granted carry over.
+
+Choose the archive folder in the menu. In a folder that doesn't hold an archive yet, click **Start Archiving Here…** first; the app warns if the folder isn't empty. From then on the app archives on two schedules, the same split as the two launchd agents below:
+
+- **Frequent**, every 10 minutes: Reminders, Calendar, WhatsApp and Claude Code.
+- **Hourly**: ChatGPT and Claude exports, and Notes.
+
+It also runs right after the Mac wakes if a schedule is due. Each run is a separate `icloud-exporter archive` process, so a long Notes read never blocks the menu, and runs share the archive lock with any you start in Terminal. The menu shows the next run, the last run of each schedule and the last problem, and has **Run Now**, **Pause** and **Show Log** (`~/Library/Logs/iCloud Exporter/archive.log`). Turn on **Open at Login** so archiving continues after a restart.
+
+While an archive launchd agent (`com.djui.icloud-exporter.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Remove the agents with `launchctl bootout` and delete their plists to let the app take over.
 
 The packaged binary starts the menu bar app only when it has no arguments and wasn't started from a terminal. With arguments, or typed in Terminal, it stays the CLI.
 
