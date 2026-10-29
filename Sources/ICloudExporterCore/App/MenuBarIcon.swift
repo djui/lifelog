@@ -5,27 +5,53 @@ import AppKit
 public enum MenuBarIcon {
     public static let size = NSSize(width: 18, height: 18)
 
-    public static func image() -> NSImage {
+    /// The glyph for a state: a spinner arc while running, a dot badge for attention, a dashed tray while paused,
+    /// and an exclamation mark in the tray when the last run failed.
+    public static func image(_ state: IconState = .idle) -> NSImage {
         let image = NSImage(size: size, flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             context.setStrokeColor(NSColor.black.cgColor)
+            context.setFillColor(NSColor.black.cgColor)
             context.setLineWidth(1.4)
             context.setLineCap(.round)
             context.setLineJoin(.round)
-            // The cloud ends where the tray begins.
+            if state == .running {
+                context.addArc(center: CGPoint(x: 9, y: 5.4), radius: 3.2, startAngle: -.pi / 2, endAngle: .pi, clockwise: false)
+                context.strokePath()
+            } else {
+                // The cloud ends where the tray begins.
+                context.saveGState()
+                context.clip(to: CGRect(x: 0, y: 0, width: 18, height: 9.5))
+                context.addPath(cloud)
+                context.strokePath()
+                context.restoreGState()
+            }
             context.saveGState()
-            context.clip(to: CGRect(x: 0, y: 0, width: 18, height: 9.5))
-            context.addPath(cloud)
+            if state == .paused { context.setLineDash(phase: 0, lengths: [2, 2]) }
+            context.addPath(CGPath(roundedRect: CGRect(x: 2.5, y: 9.5, width: 13, height: 6.5), cornerWidth: 1.7, cornerHeight: 1.7, transform: nil))
             context.strokePath()
             context.restoreGState()
-            context.addPath(CGPath(roundedRect: CGRect(x: 2.5, y: 9.5, width: 13, height: 6.5), cornerWidth: 1.7, cornerHeight: 1.7, transform: nil))
-            context.move(to: CGPoint(x: 7.4, y: 12.6))
-            context.addLine(to: CGPoint(x: 10.6, y: 12.6))
-            context.strokePath()
+            if state == .failed {
+                context.move(to: CGPoint(x: 9, y: 11.3))
+                context.addLine(to: CGPoint(x: 9, y: 12.6))
+                context.strokePath()
+                context.fillEllipse(in: CGRect(x: 8.25, y: 13.6, width: 1.5, height: 1.5))
+            } else {
+                context.move(to: CGPoint(x: 7.4, y: 12.6))
+                context.addLine(to: CGPoint(x: 10.6, y: 12.6))
+                context.strokePath()
+            }
+            if state == .attention {
+                // A clear ring keeps the badge apart from the cloud.
+                context.setBlendMode(.clear)
+                context.fillEllipse(in: CGRect(x: 10.8, y: 0.2, width: 7, height: 7))
+                context.setBlendMode(.normal)
+                context.fillEllipse(in: CGRect(x: 12, y: 1.4, width: 4.6, height: 4.6))
+            }
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "iCloud Exporter"
+        image.accessibilityDescription = "iCloud Exporter, \(state.rawValue)"
         return image
     }
 

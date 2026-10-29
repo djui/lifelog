@@ -99,6 +99,23 @@ public struct ArchiveSummary {
     public var warnings: [String] { lines.flatMap { line in line.warnings.map { "\(line.source.rawValue): \($0)" } } }
 }
 
+/// One line of `archive --progress` on stdout, such as `{"progress":"reading","source":"whatsapp"}`.
+public struct ArchiveProgress: Codable, Equatable {
+    public enum Event: String, Codable { case reading, read, failed, pages }
+    public var progress: Event
+    public var source: ArchiveSource?
+
+    public init(_ progress: Event, _ source: ArchiveSource? = nil) { self.progress = progress; self.source = source }
+
+    public var line: String { String(decoding: try! JSONLines.encoder.encode(self), as: UTF8.self) }
+
+    /// Nil for every other output line.
+    public static func parse(_ line: String) -> ArchiveProgress? {
+        guard line.hasPrefix("{\"progress\":") else { return nil }
+        return try? JSONLines.decoder.decode(Self.self, from: Data(line.utf8))
+    }
+}
+
 /// One `archive` run: per source, choose a read mode, read, merge, append to the ledger and the run log.
 /// A failed source is logged as incomplete and the others continue, as in the `export` loop.
 @MainActor
@@ -113,6 +130,8 @@ public final class Archiver {
     public var health: (_ records: [RunRecord], _ now: Date) -> [String] = { _, _ in [] }
     /// Writes the HTML viewer under `_viewer/` after the pages (`--no-viewer` turns it off and removes an earlier one).
     public var viewer = true
+    /// What the run is doing, for `archive --progress` and the menu bar app.
+    public var progress: (ArchiveProgress) -> Void = { _ in }
 
     public init(ledger: Ledger, runLog: RunLog, index: ArchiveIndex, options: ArchiveOptions, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot, timeZone: TimeZone = .current) {
         self.ledger = ledger; self.runLog = runLog; self.index = index; self.options = options; self.cacheRoot = cacheRoot; self.timeZone = timeZone
@@ -142,6 +161,7 @@ public final class Archiver {
             let mode = reader.fixedMode ?? Self.mode(for: source, records: records, now: now, options: options)
             let request = self.request(mode, now: now, source: source, imported: imported)
             ExportLog.info("\(source.rawValue): \(mode.rawValue) read")
+            progress(ArchiveProgress(.reading, source))
             var appending = false
             do {
                 for read in try await reader.read(request) {
@@ -168,7 +188,9 @@ public final class Archiver {
                         summary.lines[summary.lines.count - 1].warnings.append("could not save the read position: \(error.localizedDescription)")
                     }
                 }
+                progress(ArchiveProgress(.read, source))
             } catch {
+                progress(ArchiveProgress(.failed, source))
                 // A half-written append leaves the in-memory index behind the ledger; the next run refolds.
                 if appending { cacheValid = false }
                 let message = error.localizedDescription
@@ -181,6 +203,7 @@ public final class Archiver {
             }
         }
         if cacheValid { index.save(ledger, cacheRoot: cacheRoot) }
+        progress(ArchiveProgress(.pages))
         // Only pages showing an item this run touched are rendered; the rest stay as they are.
         let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health(records, now))
         do { summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: before, touched: touched,

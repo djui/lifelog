@@ -96,6 +96,12 @@ struct ICloudExporter {
         }
         let archiver = Archiver(ledger: ledger, runLog: runLog, index: index, options: ArchiveOptions(config), cacheRoot: cacheRoot)
         archiver.viewer = config.viewer
+        if config.progress {
+            archiver.progress = { step in
+                print(step.line)
+                fflush(stdout)
+            }
+        }
 
         var summary = ArchiveSummary()
         if config.demo {
