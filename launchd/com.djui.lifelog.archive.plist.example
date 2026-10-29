@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Two launchd agents for `archive`, both writing to the same archive folder and sharing its lock.
+  A run that finds the lock taken fails fast and the next interval tries again.
+
+  1. Save this file as ~/Library/LaunchAgents/com.djui.lifelog.archive.plist (the fast agent below).
+  2. Save a copy as ~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist and change in it:
+       Label          com.djui.lifelog.archive-slow
+       --sources      notes,chatgpt,claude
+       StartInterval  3600   (a full Notes read can take minutes)
+       log file names archive-slow.log / archive-slow.error.log
+  3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.djui.lifelog.archive.plist
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist
+
+  The fast agent runs every 10 minutes because WhatsApp disappearing messages can expire after 24 hours.
+  ChatGPT and Claude exports are picked up from ~/Downloads (or add --ai-inbox <folder>); the
+  app needs access to that folder the first time it runs.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.djui.lifelog.archive</string>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.djui.lifelog</string>
+    </array>
+    <key>LimitLoadToSessionType</key>
+    <array>
+        <string>Aqua</string>
+    </array>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/ABSOLUTE/PATH/TO/lifelog/dist/Lifelog.app/Contents/MacOS/lifelog</string>
+        <string>archive</string>
+        <string>--output</string>
+        <string>/ABSOLUTE/PATH/TO/Archive</string>
+        <string>--sources</string>
+        <string>whatsapp,reminders,calendar,claudecode</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>StandardOutPath</key>
+    <string>/ABSOLUTE/PATH/TO/Logs/lifelog-archive.log</string>
+    <key>StandardErrorPath</key>
+    <string>/ABSOLUTE/PATH/TO/Logs/lifelog-archive.error.log</string>
+</dict>
+</plist>

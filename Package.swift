@@ -4,14 +4,14 @@ import Foundation
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let package = Package(
-    name: "ICloudExporter",
+    name: "Lifelog",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "icloud-exporter", targets: ["ICloudExporter"])],
+    products: [.executable(name: "lifelog", targets: ["Lifelog"])],
     targets: [
-        .target(name: "ICloudExporterCore", resources: [.process("Resources/notes.js"), .copy("Resources/viewer")], linkerSettings: [.linkedLibrary("sqlite3")]),
-        .executableTarget(name: "ICloudExporter", dependencies: ["ICloudExporterCore"], linkerSettings: [
+        .target(name: "LifelogCore", resources: [.process("Resources/notes.js"), .copy("Resources/viewer")], linkerSettings: [.linkedLibrary("sqlite3")]),
+        .executableTarget(name: "Lifelog", dependencies: ["LifelogCore"], linkerSettings: [
             .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", root + "/Support/Info.plist"])
         ]),
-        .testTarget(name: "ICloudExporterCoreTests", dependencies: ["ICloudExporterCore"], exclude: ["Golden"], linkerSettings: [.linkedLibrary("sqlite3")])
+        .testTarget(name: "LifelogCoreTests", dependencies: ["LifelogCore"], exclude: ["Golden"], linkerSettings: [.linkedLibrary("sqlite3")])
     ]
 )

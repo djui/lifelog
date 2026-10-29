@@ -4,25 +4,25 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_dir"
 
-swift build --configuration release --product icloud-exporter
+swift build --configuration release --product lifelog
 build_dir=$(swift build --configuration release --show-bin-path)
-resource_bundle=ICloudExporter_ICloudExporterCore.bundle
+resource_bundle=Lifelog_LifelogCore.bundle
 
 if [ ! -d "$build_dir/$resource_bundle" ]; then
   echo "Build failed to produce the required SwiftPM resource bundle: $resource_bundle" >&2
   exit 1
 fi
 
-app="$project_dir/dist/icloud-exporter.app"
-executable_link="$project_dir/dist/icloud-exporter"
+app="$project_dir/dist/Lifelog.app"
+executable_link="$project_dir/dist/lifelog"
 contents="$app/Contents"
 macos="$contents/MacOS"
 resources="$contents/Resources"
 
 rm -rf "$app" "$executable_link"
 mkdir -p "$macos" "$resources"
-cp "$build_dir/icloud-exporter" "$macos/icloud-exporter"
-chmod 755 "$macos/icloud-exporter"
+cp "$build_dir/lifelog" "$macos/lifelog"
+chmod 755 "$macos/lifelog"
 ditto "$build_dir/$resource_bundle" "$resources/$resource_bundle"
 cp "$project_dir/Support/Info.plist" "$contents/Info.plist"
 # Regenerate with: swift scripts/make-icon.swift
@@ -43,13 +43,13 @@ fi
 # app resources. A certificate-backed signature keeps a stable TCC identity
 # across rebuilds; ad-hoc signatures still change with the binary contents.
 if [ "$identity" = "-" ]; then
-  codesign --force --sign - --identifier com.djui.icloud-exporter "$app"
+  codesign --force --sign - --identifier com.djui.lifelog "$app"
 else
-  codesign --force --sign "$identity" --identifier com.djui.icloud-exporter \
+  codesign --force --sign "$identity" --identifier com.djui.lifelog \
     --timestamp=none "$app"
 fi
 
-ln -s "icloud-exporter.app/Contents/MacOS/icloud-exporter" "$executable_link"
+ln -s "Lifelog.app/Contents/MacOS/lifelog" "$executable_link"
 
 lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ -x "$lsregister" ]; then

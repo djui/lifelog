@@ -18,16 +18,16 @@ jobs:
       - name: Smoke test packaged demo
         shell: bash
         run: |
-          output="$RUNNER_TEMP/icloud-exporter-demo"
-          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter export --output "$output" --demo
+          output="$RUNNER_TEMP/lifelog-demo"
+          ./dist/Lifelog.app/Contents/MacOS/lifelog export --output "$output" --demo
           # Newer toolchains nest bundle resources under Contents/Resources; older ones keep them flat.
-          bundle=dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle
+          bundle=dist/Lifelog.app/Contents/Resources/Lifelog_LifelogCore.bundle
           test -f "$bundle/notes.js" || test -f "$bundle/Contents/Resources/notes.js"
-          codesign -dv --verbose=4 dist/icloud-exporter.app 2>&1 | grep "Identifier=com.djui.icloud-exporter" >/dev/null
+          codesign -dv --verbose=4 dist/Lifelog.app 2>&1 | grep "Identifier=com.djui.lifelog" >/dev/null
           # The menu bar app: icon in the bundle; with arguments (or from a terminal) the binary stays the CLI.
-          test -s dist/icloud-exporter.app/Contents/Resources/AppIcon.icns
-          test "$(plutil -extract CFBundleIconFile raw dist/icloud-exporter.app/Contents/Info.plist)" = AppIcon
-          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter --help | grep "icloud-exporter app" >/dev/null
+          test -s dist/Lifelog.app/Contents/Resources/AppIcon.icns
+          test "$(plutil -extract CFBundleIconFile raw dist/Lifelog.app/Contents/Info.plist)" = AppIcon
+          ./dist/Lifelog.app/Contents/MacOS/lifelog --help | grep "lifelog app" >/dev/null
           test -s "$output/_index.md"
           test -s "$output/Reminders/current-reminders.md"
           test -s "$output/Reminders/completed-recent.md"
@@ -38,8 +38,8 @@ jobs:
       - name: Smoke test archive demo
         shell: bash
         run: |
-          output="$RUNNER_TEMP/icloud-exporter-archive-demo"
-          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --demo
+          output="$RUNNER_TEMP/lifelog-archive-demo"
+          ./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$output" --demo
           test -s "$output/_index.md"
           grep -q "| WhatsApp |" "$output/_index.md"
           test -n "$(ls "$output/.archive/ledger/whatsapp"/*.jsonl 2>/dev/null)"
@@ -60,8 +60,8 @@ jobs:
           test -s "$output/_viewer/data/manifest.js"
           grep -q "^window.ARCHIVE.load(" "$output/_viewer/data/manifest.js"
           test -n "$(ls "$output"/_viewer/data/whatsapp/*.js 2>/dev/null)"
-          test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/viewer/index.html || test -f dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle/Contents/Resources/viewer/index.html
-          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter rebuild --output "$output" | grep -q "0 pages written"
+          test -f dist/Lifelog.app/Contents/Resources/Lifelog_LifelogCore.bundle/viewer/index.html || test -f dist/Lifelog.app/Contents/Resources/Lifelog_LifelogCore.bundle/Contents/Resources/viewer/index.html
+          ./dist/Lifelog.app/Contents/MacOS/lifelog rebuild --output "$output" | grep -q "0 pages written"
           # A second demo into the same folder is refused, so demo data never mixes with a real archive.
-          if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --demo; then exit 1; fi
-          if ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter archive --output "$output" --sources claudecode; then exit 1; fi
+          if ./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$output" --demo; then exit 1; fi
+          if ./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$output" --sources claudecode; then exit 1; fi
