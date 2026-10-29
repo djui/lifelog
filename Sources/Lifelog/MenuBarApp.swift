@@ -225,7 +225,7 @@ final class MenuModel: ObservableObject {
 
     /// Where taken-over agents are moved, so they can be restored by moving them back.
     static var disabledAgents: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.djui.icloud-exporter/Disabled LaunchAgents")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.djui.lifelog/Disabled LaunchAgents")
     }
 
     /// The menu item for installed agents: take over archive agents, or stop the export agent once the archive runs.
@@ -249,7 +249,7 @@ final class MenuModel: ObservableObject {
         NSApplication.shared.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         let names = (archive.isEmpty ? export : archive).map { "• \($0.label)" }.joined(separator: "\n")
-        let moved = "Their files move to ~/Library/Application Support/com.djui.icloud-exporter/Disabled LaunchAgents, so you can restore them."
+        let moved = "Their files move to ~/Library/Application Support/com.djui.lifelog/Disabled LaunchAgents, so you can restore them."
         if let adopted {
             alert.messageText = "Take over from launchd?"
             alert.informativeText = "Lifelog will archive \(adopted.folder.lastPathComponent) on the same schedule, and stop these agents:\n\(names)\n\n\(moved)"

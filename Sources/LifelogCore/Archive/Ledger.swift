@@ -105,7 +105,7 @@ public enum HostID {
     }
 
     public static var defaultDirectory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("com.djui.icloud-exporter")
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("com.djui.lifelog")
     }
 }
 

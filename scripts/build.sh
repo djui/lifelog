@@ -43,9 +43,9 @@ fi
 # app resources. A certificate-backed signature keeps a stable TCC identity
 # across rebuilds; ad-hoc signatures still change with the binary contents.
 if [ "$identity" = "-" ]; then
-  codesign --force --sign - --identifier com.djui.icloud-exporter "$app"
+  codesign --force --sign - --identifier com.djui.lifelog "$app"
 else
-  codesign --force --sign "$identity" --identifier com.djui.icloud-exporter \
+  codesign --force --sign "$identity" --identifier com.djui.lifelog \
     --timestamp=none "$app"
 fi
 

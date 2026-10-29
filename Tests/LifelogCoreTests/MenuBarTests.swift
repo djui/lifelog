@@ -85,10 +85,13 @@ final class ScheduleTests: XCTestCase {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        try Data().write(to: folder.appendingPathComponent("com.djui.icloud-exporter.plist"))
+        try Data().write(to: folder.appendingPathComponent("com.djui.lifelog.plist"))
         XCTAssertEqual(LaunchAgents.archiveAgents(in: folder), [])
-        try Data().write(to: folder.appendingPathComponent("com.djui.icloud-exporter.archive-slow.plist"))
-        XCTAssertEqual(LaunchAgents.archiveAgents(in: folder), ["com.djui.icloud-exporter.archive-slow.plist"])
+        try Data().write(to: folder.appendingPathComponent("com.djui.lifelog.archive-slow.plist"))
+        XCTAssertEqual(LaunchAgents.archiveAgents(in: folder), ["com.djui.lifelog.archive-slow.plist"])
+        // Agents from before the rename still count.
+        try Data().write(to: folder.appendingPathComponent("com.djui.icloud-exporter.archive.plist"))
+        XCTAssertEqual(LaunchAgents.archiveAgents(in: folder), ["com.djui.icloud-exporter.archive.plist", "com.djui.lifelog.archive-slow.plist"])
     }
 }
 
@@ -351,15 +354,15 @@ final class LaunchAgentAdoptionTests: XCTestCase {
 
     func testTheREADMEAgentsBecomeTheDefaultSchedules() throws {
         let agents = try folder()
-        try write("com.djui.icloud-exporter.archive.plist", label: "com.djui.icloud-exporter.archive",
+        try write("com.djui.lifelog.archive.plist", label: "com.djui.lifelog.archive",
                   ["archive", "--output", "/Users/me/Archive", "--sources", "whatsapp,reminders,calendar,claudecode", "--notify"], interval: 600, in: agents)
-        try write("com.djui.icloud-exporter.archive-slow.plist", label: "com.djui.icloud-exporter.archive-slow",
+        try write("com.djui.lifelog.archive-slow.plist", label: "com.djui.lifelog.archive-slow",
                   ["archive", "--output", "/Users/me/Archive", "--sources", "notes,chatgpt,claude"], interval: 3600, in: agents)
-        try write("com.djui.icloud-exporter.plist", label: "com.djui.icloud-exporter", ["export", "--output", "/Users/me/Export"], interval: 600, in: agents)
-        try Data("not a plist".utf8).write(to: agents.appendingPathComponent("com.djui.icloud-exporter.broken.plist"))
+        try write("com.djui.lifelog.plist", label: "com.djui.lifelog", ["export", "--output", "/Users/me/Export"], interval: 600, in: agents)
+        try Data("not a plist".utf8).write(to: agents.appendingPathComponent("com.djui.lifelog.broken.plist"))
 
         let found = LaunchAgents.agents(in: agents)
-        XCTAssertEqual(found.map(\.label), ["com.djui.icloud-exporter.archive-slow", "com.djui.icloud-exporter.archive", "com.djui.icloud-exporter"])
+        XCTAssertEqual(found.map(\.label), ["com.djui.lifelog.archive-slow", "com.djui.lifelog.archive", "com.djui.lifelog"])
         XCTAssertEqual(found.map(\.isArchive), [true, true, false])
         let adopted = try XCTUnwrap(LaunchAgents.adopt(found, into: AppSettings()))
         XCTAssertEqual(adopted.folder.path, "/Users/me/Archive")
@@ -369,7 +372,7 @@ final class LaunchAgentAdoptionTests: XCTestCase {
 
     func testAgentOptionsCarryOverAndUnreadSourcesAreOff() throws {
         let agents = try folder()
-        try write("com.djui.icloud-exporter.archive.plist", label: "a", ["archive", "--output", "/A", "--sources", "whatsapp,notes", "--backfill-since", "2012-03-04",
+        try write("com.djui.lifelog.archive.plist", label: "a", ["archive", "--output", "/A", "--sources", "whatsapp,notes", "--backfill-since", "2012-03-04",
                                                                          "--rescan-days", "30", "--full-sweep-days", "14", "--ai-inbox", "/Exports", "--no-viewer"],
                   interval: 900, in: agents)
         var base = AppSettings()
@@ -390,7 +393,9 @@ final class LaunchAgentAdoptionTests: XCTestCase {
 
     func testNoArchiveAgentNothingToAdopt() throws {
         let agents = try folder()
+        // An export agent from before the rename.
         try write("com.djui.icloud-exporter.plist", label: "e", ["export", "--output", "/E"], interval: 600, in: agents)
+        XCTAssertEqual(LaunchAgents.agents(in: agents).map(\.label), ["e"])
         XCTAssertNil(LaunchAgents.adopt(LaunchAgents.agents(in: agents), into: AppSettings()))
     }
 }

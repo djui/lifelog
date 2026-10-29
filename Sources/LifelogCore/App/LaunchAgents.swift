@@ -4,7 +4,8 @@ import Foundation
 /// it, so the same sources are not read twice; the app can take over its folder and schedule instead.
 public enum LaunchAgents {
     public static var directory: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents") }
-    static let prefix = "com.djui.icloud-exporter"
+    /// Agents of this app; `com.djui.icloud-exporter` is its name before the rename to Lifelog.
+    static let prefixes = ["com.djui.lifelog", "com.djui.icloud-exporter"]
 
     /// One installed agent.
     public struct Agent: Equatable {
@@ -16,15 +17,16 @@ public enum LaunchAgents {
         public var isArchive: Bool { arguments.first == Command.archive.rawValue }
     }
 
-    /// Installed archive agents (`com.djui.icloud-exporter.archive*.plist`); the export agent does not count.
+    /// Installed archive agents (`com.djui.lifelog.archive*.plist`, or the old name's); the export agent does not count.
     public static func archiveAgents(in directory: URL = directory) -> [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return names.filter { $0.hasPrefix(prefix + ".archive") && $0.hasSuffix(".plist") }.sorted()
+        return names.filter { name in prefixes.contains { name.hasPrefix($0 + ".archive") } && name.hasSuffix(".plist") }.sorted()
     }
 
     /// Every installed agent of this app that can be read.
     public static func agents(in directory: URL = directory) -> [Agent] {
-        let names = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasPrefix(prefix) && $0.hasSuffix(".plist") }
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { name in prefixes.contains { name.hasPrefix($0 + ".") } && name.hasSuffix(".plist") }
         return names.sorted().compactMap { name in
             let file = directory.appendingPathComponent(name)
             guard let data = try? Data(contentsOf: file),

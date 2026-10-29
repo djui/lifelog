@@ -107,7 +107,7 @@ public struct ArchiveIndex: Equatable {
     static func cacheFile(for ledger: Ledger, in cacheRoot: URL) -> URL { cacheDirectory(for: ledger, in: cacheRoot).appendingPathComponent("index.json") }
 
     public static var defaultCacheRoot: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("com.djui.icloud-exporter")
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("com.djui.lifelog")
     }
 
     struct Cache: Codable {

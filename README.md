@@ -2,7 +2,7 @@
 
 A local, read-only lifelong archive of your Apple Notes, Reminders and Calendar, your WhatsApp chats, ChatGPT and Claude exports, and Claude Code transcripts. It keeps everything it has ever seen, including messages that later expire or are deleted, as Markdown files plus an offline HTML viewer that you can browse, search, or give to an AI tool of your choice. Lifelog does not change your Apple or WhatsApp data and does not need an API key, web service, MCP server, or ChatGPT subscription. It also still has the original `export` mode, a plain Markdown mirror of Notes, Reminders, Calendar and WhatsApp.
 
-Lifelog was called icloud-exporter. The app keeps that version's bundle identifier (`com.djui.icloud-exporter`), so the permissions, settings and archives you already have keep working.
+Lifelog was called icloud-exporter. It now has its own bundle identifier, `com.djui.lifelog`, so macOS treats it as a new app: grant Calendar, Reminders, Notes and Full Disk Access again (Settings → Permissions), and choose your archive folder again. The archive and export folders themselves keep working as they are. The app still recognizes launchd agents named `com.djui.icloud-exporter*`, so **Take Over from launchd…** and **Stop the Export Agent…** work for agents set up before the rename.
 
 Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-party package dependencies.
 
@@ -94,14 +94,14 @@ This schedules the `export` mirror. For the archive, use the [menu bar app](#men
 
 Scheduling is manual. First complete a successful foreground export using `dist/Lifelog.app/Contents/MacOS/lifelog`, the same path you will schedule. Then:
 
-1. Create `~/Library/LaunchAgents` if needed, then copy `launchd/com.djui.icloud-exporter.plist.example` to `~/Library/LaunchAgents/com.djui.icloud-exporter.plist`.
-2. Edit the copied file, replacing every placeholder with an absolute path for the `.app` executable, output directory, and log files. Leave `AssociatedBundleIdentifiers` as `com.djui.icloud-exporter`. Create the parent log directory if it does not exist. A plist does not expand `~`, `$HOME`, or shell commands. Escape XML characters such as `&` as `&amp;` when they occur in paths.
+1. Create `~/Library/LaunchAgents` if needed, then copy `launchd/com.djui.lifelog.plist.example` to `~/Library/LaunchAgents/com.djui.lifelog.plist`.
+2. Edit the copied file, replacing every placeholder with an absolute path for the `.app` executable, output directory, and log files. Leave `AssociatedBundleIdentifiers` as `com.djui.lifelog`. Create the parent log directory if it does not exist. A plist does not expand `~`, `$HOME`, or shell commands. Escape XML characters such as `&` as `&amp;` when they occur in paths.
 3. Validate and load the agent:
 
 ```sh
-plutil -lint "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.plist"
+plutil -lint "$HOME/Library/LaunchAgents/com.djui.lifelog.plist"
 launchctl bootstrap "gui/$(id -u)" \
-  "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.plist"
+  "$HOME/Library/LaunchAgents/com.djui.lifelog.plist"
 ```
 
 The example runs when loaded and then approximately every ten minutes while your user session is active. A sleeping or logged-out Mac does not provide an exact ten-minute schedule. Check the configured logs if a scheduled export fails.
@@ -110,7 +110,7 @@ To stop the agent before changing or removing it:
 
 ```sh
 launchctl bootout "gui/$(id -u)" \
-  "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.plist"
+  "$HOME/Library/LaunchAgents/com.djui.lifelog.plist"
 ```
 
 After editing an unloaded agent, validate it and load it again. Building the project does not install or load a launch agent.
@@ -191,7 +191,7 @@ Archive/
 
 The ledger is the source of truth. Everything else is a view of it and can be regenerated with `rebuild`. Ledger files are plain JSON lines, partitioned by the month they were written. Each Mac writes only files carrying its own host id, so two Macs never write the same file. Don't edit pages by hand: like `export`, the archive refuses to overwrite a page that was changed outside it.
 
-Caches live outside the synced folder, in `~/Library/Caches/com.djui.icloud-exporter/<archive-hash>/`. They hold the folded index, the Claude Code read positions, the AI inbox digests and the notifications already sent. All of them can be deleted. The next run rebuilds the index from the ledger, and reads every Claude Code transcript again without adding duplicates.
+Caches live outside the synced folder, in `~/Library/Caches/com.djui.lifelog/<archive-hash>/`. They hold the folded index, the Claude Code read positions, the AI inbox digests and the notifications already sent. All of them can be deleted. The next run rebuilds the index from the ledger, and reads every Claude Code transcript again without adding duplicates.
 
 ### States
 
@@ -324,7 +324,7 @@ The menu shows the next run, the source being read, each source's last read (✓
 
 The app sends the same notifications as `archive --notify` (WhatsApp falling behind, repeated read failures, an AI export due), each once, so `--notify` isn't needed with the app.
 
-While an archive launchd agent (`com.djui.icloud-exporter.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Choose **Take Over from launchd…** in the menu to switch; see [Headless scheduling with launchd](#headless-scheduling-with-launchd).
+While an archive launchd agent (`com.djui.lifelog.archive*.plist`) is installed, the app leaves scheduling to it, so nothing is read twice. Choose **Take Over from launchd…** in the menu to switch; see [Headless scheduling with launchd](#headless-scheduling-with-launchd).
 
 The app reads the run log as it grows (only new lines on each check) and keeps the last 60 days plus what the health checks need, so it stays light however old the archive gets.
 
@@ -332,28 +332,28 @@ The packaged binary starts the menu bar app only when it has no arguments and wa
 
 ### Headless scheduling with launchd
 
-The [menu bar app](#menu-bar-app) schedules the archive for you. Use launchd instead only to run without the app. If you set up the agents below before the app, open the app and choose **Take Over from launchd…**: it stops the agents, moves their plists to `~/Library/Application Support/com.djui.icloud-exporter/Disabled LaunchAgents` (move them back to restore them), and takes over their folder, sources, schedules and options.
+The [menu bar app](#menu-bar-app) schedules the archive for you. Use launchd instead only to run without the app. If you set up the agents below before the app, open the app and choose **Take Over from launchd…**: it stops the agents, moves their plists to `~/Library/Application Support/com.djui.lifelog/Disabled LaunchAgents` (move them back to restore them), and takes over their folder, sources, schedules and options.
 
 Use two launchd agents that share one archive folder. They share its lock, so when one is running, the other fails fast and tries again at its next interval.
 
 - A fast agent runs `whatsapp,reminders,calendar,claudecode` every 10 minutes, because disappearing messages can expire after 24 hours.
 - A slow agent runs `notes,chatgpt,claude` every hour, because a full Notes read can take minutes.
 
-1. Copy `launchd/com.djui.icloud-exporter.archive.plist.example` to `~/Library/LaunchAgents/com.djui.icloud-exporter.archive.plist`. Replace every `/ABSOLUTE/PATH/TO/…` placeholder, as for the export agent above.
-2. Save a second copy as `~/Library/LaunchAgents/com.djui.icloud-exporter.archive-slow.plist`. In it, change the `Label` to `com.djui.icloud-exporter.archive-slow`, `--sources` to `notes,chatgpt,claude`, `StartInterval` to `3600`, and the log file names to `archive-slow.log` and `archive-slow.error.log`.
+1. Copy `launchd/com.djui.lifelog.archive.plist.example` to `~/Library/LaunchAgents/com.djui.lifelog.archive.plist`. Replace every `/ABSOLUTE/PATH/TO/…` placeholder, as for the export agent above.
+2. Save a second copy as `~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist`. In it, change the `Label` to `com.djui.lifelog.archive-slow`, `--sources` to `notes,chatgpt,claude`, `StartInterval` to `3600`, and the log file names to `archive-slow.log` and `archive-slow.error.log`.
 3. Add `--notify` to `ProgramArguments` in the fast agent if you want notifications.
 4. Validate and load both agents:
 
 ```bash
-plutil -lint "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.archive.plist" "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.archive-slow.plist"
+plutil -lint "$HOME/Library/LaunchAgents/com.djui.lifelog.archive.plist" "$HOME/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist"
 ```
 
 ```bash
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.archive.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.djui.lifelog.archive.plist"
 ```
 
 ```bash
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.djui.icloud-exporter.archive-slow.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist"
 ```
 
 Use `launchctl bootout` with the same arguments to stop an agent.

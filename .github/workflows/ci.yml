@@ -23,7 +23,7 @@ jobs:
           # Newer toolchains nest bundle resources under Contents/Resources; older ones keep them flat.
           bundle=dist/Lifelog.app/Contents/Resources/Lifelog_LifelogCore.bundle
           test -f "$bundle/notes.js" || test -f "$bundle/Contents/Resources/notes.js"
-          codesign -dv --verbose=4 dist/Lifelog.app 2>&1 | grep "Identifier=com.djui.icloud-exporter" >/dev/null
+          codesign -dv --verbose=4 dist/Lifelog.app 2>&1 | grep "Identifier=com.djui.lifelog" >/dev/null
           # The menu bar app: icon in the bundle; with arguments (or from a terminal) the binary stays the CLI.
           test -s dist/Lifelog.app/Contents/Resources/AppIcon.icns
           test "$(plutil -extract CFBundleIconFile raw dist/Lifelog.app/Contents/Info.plist)" = AppIcon

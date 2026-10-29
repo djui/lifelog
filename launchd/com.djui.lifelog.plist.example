@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.djui.icloud-exporter</string>
+    <string>com.djui.lifelog</string>
     <key>AssociatedBundleIdentifiers</key>
     <array>
-        <string>com.djui.icloud-exporter</string>
+        <string>com.djui.lifelog</string>
     </array>
     <key>LimitLoadToSessionType</key>
     <array>
