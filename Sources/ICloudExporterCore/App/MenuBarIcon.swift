@@ -5,9 +5,12 @@ import AppKit
 public enum MenuBarIcon {
     public static let size = NSSize(width: 18, height: 18)
 
-    /// The glyph for a state: a spinner arc while running, a dot badge for attention, a dashed tray while paused,
-    /// and an exclamation mark in the tray when the last run failed.
-    public static func image(_ state: IconState = .idle) -> NSImage {
+    /// Frames of the running spinner; the app steps through them while a run is in progress.
+    public static let spinnerFrames = 8
+
+    /// The glyph for a state: a spinner arc while running (turned by `frame`), a dot badge for attention, a dashed
+    /// tray while paused, and an exclamation mark in the tray when the last run failed.
+    public static func image(_ state: IconState = .idle, frame: Int = 0) -> NSImage {
         let image = NSImage(size: size, flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             context.setStrokeColor(NSColor.black.cgColor)
@@ -16,7 +19,8 @@ public enum MenuBarIcon {
             context.setLineCap(.round)
             context.setLineJoin(.round)
             if state == .running {
-                context.addArc(center: CGPoint(x: 9, y: 5.4), radius: 3.2, startAngle: -.pi / 2, endAngle: .pi, clockwise: false)
+                let turn = CGFloat(frame % spinnerFrames) / CGFloat(spinnerFrames) * 2 * .pi
+                context.addArc(center: CGPoint(x: 9, y: 5.4), radius: 3.2, startAngle: -.pi / 2 + turn, endAngle: .pi + turn, clockwise: false)
                 context.strokePath()
             } else {
                 // The cloud ends where the tray begins.

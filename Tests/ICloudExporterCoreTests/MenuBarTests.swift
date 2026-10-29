@@ -231,3 +231,23 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(loaded.sourceLanes, [:])
     }
 }
+
+final class SpinnerFrameTests: XCTestCase {
+    func signature(_ image: NSImage) -> String {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 36, pixelsHigh: 36, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+        return (0..<36).flatMap { y in (0..<36).map { x in (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 ? "1" : "0" } }.joined()
+    }
+
+    func testTheRunningIconTurnsAndTheOthersStayPut() {
+        let frames = (0..<MenuBarIcon.spinnerFrames).map { signature(MenuBarIcon.image(.running, frame: $0)) }
+        XCTAssertEqual(Set(frames).count, MenuBarIcon.spinnerFrames, "every frame of the spinner is different")
+        XCTAssertEqual(frames[0], signature(MenuBarIcon.image(.running, frame: MenuBarIcon.spinnerFrames)), "frames wrap around")
+        XCTAssertEqual(signature(MenuBarIcon.image(.idle, frame: 3)), signature(MenuBarIcon.image(.idle)))
+    }
+}
