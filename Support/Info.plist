@@ -10,6 +10,8 @@
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
+    <key>LSMultipleInstancesProhibited</key><true/>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSCalendarsFullAccessUsageDescription</key><string>Export your calendar events into local Markdown files you choose.</string>
     <key>NSRemindersFullAccessUsageDescription</key><string>Export your reminders into local Markdown files you choose.</string>
     <key>NSAppleEventsUsageDescription</key><string>Read Apple Notes to export notes into local Markdown files you choose.</string>

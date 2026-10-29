@@ -104,6 +104,7 @@ public struct Config {
       icloud-exporter rebuild --output <directory> [--no-viewer]
       icloud-exporter verify --output <directory>
       icloud-exporter open --output <directory>
+      icloud-exporter app
 
     Commands:
       export      Mirror the sources into Markdown snapshots
@@ -112,6 +113,7 @@ public struct Config {
       rebuild     Regenerate every archive page from the ledger
       verify      Check the archive ledger, run log and index cache
       open        Open the archive's offline HTML viewer in the default browser
+      app         Start the menu bar app (also what opening iCloud Exporter.app does)
 
     Export options:
       --sources notes,reminders,calendar,whatsapp   Sources to export (default: all)
