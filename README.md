@@ -383,3 +383,9 @@ swift test
 ```
 
 CI runs tests on macOS and checks that the packaged executable can produce a demo export and a demo archive. Tests and the demo do not require access to your Apple or WhatsApp data.
+
+To publish a release, store notarytool credentials once (`xcrun notarytool store-credentials lifelog-notary --apple-id <apple id> --team-id <team id>`), then run `./scripts/release.sh`. It builds with the hardened runtime and a secure timestamp, notarizes and staples `dist/Lifelog.app`, and writes `release/Lifelog-<version>.zip`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
