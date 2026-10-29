@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lifelog — a lifelong archive of your Mac</title>
+<meta name="description" content="Lifelog keeps a local, read-only, lifelong archive of your Apple Notes, Reminders, Calendar, WhatsApp chats, ChatGPT and Claude exports, and Claude Code transcripts, as Markdown plus an offline viewer.">
+<meta property="og:title" content="Lifelog">
+<meta property="og:description" content="A local, read-only, lifelong archive of your notes, reminders, calendar and chats. Nothing is dropped.">
+<meta property="og:image" content="https://djui.github.io/lifelog/icon.png">
+<link rel="icon" href="icon.png">
+<style>
+:root {
+  --bg: #f9faf9;
+  --surface: #ffffff;
+  --surface-2: #f0f3f2;
+  --text: #1c1b19;
+  --muted: #6b675f;
+  --line: #dfe5e3;
+  --accent: #0e6b66;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefeb;
+  --ok: #2f7d4f;
+  --warn: #b0731a;
+  --gone: #9a3b3b;
+  --shadow: 0 1px 2px rgb(28 27 25 / .05), 0 12px 32px -12px rgb(28 27 25 / .18);
+  --radius: 16px;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110;
+    --surface: #1b1a18;
+    --surface-2: #23211e;
+    --text: #f1eee8;
+    --muted: #a39e94;
+    --line: #2f2c28;
+    --accent: #5cc8bb;
+    --accent-ink: #062320;
+    --accent-soft: #14302d;
+    --ok: #6cc28f;
+    --warn: #e2a94f;
+    --gone: #e58a8a;
+    --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 16px 40px -16px rgb(0 0 0 / .7);
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+code { font-family: var(--mono); font-size: .88em; background: var(--surface-2); padding: .1em .4em; border-radius: 6px; }
+
+/* Nav */
+nav { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; text-decoration: none; letter-spacing: -.01em; }
+.brand img { width: 28px; height: 28px; border-radius: 7px; }
+nav .links { display: flex; gap: 22px; font-size: 15px; }
+nav .links a { color: var(--muted); text-decoration: none; }
+nav .links a:hover { color: var(--text); }
+
+/* Hero */
+.hero { padding: 88px 0 56px; text-align: center; position: relative; overflow: hidden; }
+.hero::before { content: ""; position: absolute; inset: -40% -20% auto; height: 120%; background: radial-gradient(60% 50% at 50% 0%, var(--accent-soft), transparent 70%); z-index: -1; }
+.hero .icon { width: 112px; height: 112px; border-radius: 26px; box-shadow: var(--shadow); }
+h1 { font-size: clamp(40px, 7vw, 68px); line-height: 1.04; letter-spacing: -.035em; margin: 28px 0 18px; font-weight: 720; }
+h1 em { font-style: normal; color: var(--accent); }
+.lede { font-size: clamp(18px, 2.2vw, 21px); color: var(--muted); max-width: 640px; margin: 0 auto 34px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 22px; border-radius: 999px; font-weight: 600; font-size: 16px; text-decoration: none; border: 1px solid var(--line); background: var(--surface); transition: transform .15s ease, box-shadow .15s ease; }
+.btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn svg { width: 18px; height: 18px; }
+.fine { margin-top: 14px; font-size: 14px; color: var(--muted); }
+
+/* Showcase */
+.showcase { display: grid; grid-template-columns: 1.15fr .85fr; gap: 20px; margin: 40px 0 24px; text-align: left; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.card .bar { display: flex; gap: 7px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 13px; color: var(--muted); }
+.card .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line); display: inline-block; }
+.card .bar span { margin-left: 8px; font-family: var(--mono); }
+.timeline { padding: 8px 0; }
+.item { display: grid; grid-template-columns: 58px 1fr auto; gap: 12px; align-items: baseline; padding: 11px 18px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font-size: 15px; }
+.item:last-child { border-bottom: 0; }
+.item time { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.item .who { font-weight: 600; margin-right: 6px; }
+.item .gone { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--gone) 70%, transparent); color: var(--muted); }
+.tag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; letter-spacing: .01em; }
+.tag.active { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.tag.expired { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.tag.deleted, .tag.revoked { background: color-mix(in srgb, var(--gone) 15%, transparent); color: var(--gone); }
+.tag.edited { background: var(--surface-2); color: var(--muted); }
+
+.menu { padding: 10px; font-size: 14px; }
+.menu .row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 8px; }
+.menu .row.head { font-weight: 600; }
+.menu .row.sel { background: var(--accent); color: var(--accent-ink); }
+.menu .row .dim { color: var(--muted); }
+.menu .row.sel .dim { color: inherit; opacity: .8; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+.ok { color: var(--ok); } .warn { color: var(--warn); }
+
+/* Sections */
+section { padding: 72px 0; scroll-margin-top: 60px; }
+section.alt { background: var(--surface-2); border-block: 1px solid var(--line); }
+.eyebrow { font-size: 13px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+h2 { font-size: clamp(28px, 4vw, 40px); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 14px; font-weight: 700; }
+.sub { color: var(--muted); max-width: 640px; margin: 0 0 40px; font-size: 18px; }
+.grid { display: grid; gap: 16px; }
+.grid.three { grid-template-columns: repeat(3, 1fr); }
+.grid.four { grid-template-columns: repeat(4, 1fr); }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+.tile h3 { margin: 12px 0 6px; font-size: 17px; letter-spacing: -.01em; }
+.tile p { margin: 0; color: var(--muted); font-size: 15px; }
+.glyph { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.glyph svg { width: 21px; height: 21px; }
+.source { display: flex; align-items: center; gap: 12px; padding: 16px 18px; }
+.source .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.source b { font-weight: 600; font-size: 15.5px; display: block; }
+.source small { color: var(--muted); font-size: 13px; }
+
+.rules { counter-reset: r; display: grid; gap: 14px; grid-template-columns: repeat(2, 1fr); }
+.rule { position: relative; padding: 20px 22px 20px 66px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.rule::before { counter-increment: r; content: counter(r); position: absolute; left: 20px; top: 19px; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; font-size: 14px; }
+.rule b { display: block; margin-bottom: 2px; }
+.rule span { color: var(--muted); font-size: 15px; }
+
+.install { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; }
+.steps li { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+.steps li > b { display: block; margin-bottom: 2px; }
+.steps li span { color: var(--muted); font-size: 15px; }
+pre { margin: 0; padding: 20px; overflow-x: auto; font: 13.5px/1.7 var(--mono); color: var(--text); }
+pre .c { color: var(--muted); }
+pre .p { color: var(--accent); user-select: none; }
+
+.privacy { display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; }
+.privacy p { margin: 0 0 10px; color: var(--muted); }
+.privacy p:last-child { margin: 0; }
+
+footer { padding: 40px 0 56px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+footer a { color: var(--muted); }
+
+@media (max-width: 880px) {
+  .showcase, .install, .rules { grid-template-columns: 1fr; }
+  .grid.three { grid-template-columns: 1fr 1fr; }
+  .grid.four { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  .wrap { padding: 0 16px; }
+  nav .links a:not(.gh) { display: none; }
+  .hero { padding: 56px 0 32px; }
+  .grid.three, .grid.four { grid-template-columns: 1fr; }
+  .item { grid-template-columns: 48px 1fr; }
+  .item .tag { grid-column: 2; justify-self: start; }
+  .privacy { grid-template-columns: 1fr; }
+  section { padding: 56px 0; }
+}
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="icon.png" alt="">Lifelog</a>
+    <div class="links">
+      <a href="#how">How it works</a>
+      <a href="#sources">Sources</a>
+      <a href="#install">Install</a>
+      <a class="gh" href="https://github.com/djui/lifelog">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="icon" src="icon.png" alt="Lifelog app icon">
+    <h1>Everything you've seen.<br><em>Kept for life.</em></h1>
+    <p class="lede">Lifelog quietly archives your notes, reminders, calendar and chats into plain Markdown on your own disk, and keeps them even after they expire or are deleted.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/djui/lifelog/releases/latest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn" href="https://github.com/djui/lifelog">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.46-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+        View source
+      </a>
+    </div>
+    <p class="fine">Free and local · macOS 14 or newer · no account, no cloud, no API key</p>
+
+    <div class="showcase">
+      <div class="card" aria-label="Example archive timeline">
+        <div class="bar"><i></i><i></i><i></i><span>Archive/Timeline/2026/10.md</span></div>
+        <div class="timeline">
+          <div class="item"><time>09:14</time><div><span class="who">Anna</span>Lunch on Friday? 🍜</div><span class="tag active">active</span></div>
+          <div class="item"><time>09:20</time><div><span class="who">Ben</span><span class="gone">Here's the door code: 4471</span></div><span class="tag expired">expired · 24h</span></div>
+          <div class="item"><time>11:02</time><div><span class="who">Reminder</span>Renew passport</div><span class="tag edited">edited</span></div>
+          <div class="item"><time>14:30</time><div><span class="who">Calendar</span><span class="gone">Dentist</span> → moved to Nov 4</div><span class="tag edited">rescheduled</span></div>
+          <div class="item"><time>18:45</time><div><span class="who">Sam</span><span class="gone">Oops, wrong chat</span></div><span class="tag revoked">revoked</span></div>
+          <div class="item"><time>21:10</time><div><span class="who">Note</span><span class="gone">Gift ideas for Mom</span></div><span class="tag deleted">deleted</span></div>
+        </div>
+      </div>
+      <div class="card" aria-label="Example menu bar menu">
+        <div class="bar"><i></i><i></i><i></i><span>Menu bar</span></div>
+        <div class="menu">
+          <div class="row head"><span>Lifelog</span><span class="dim">next run 18:50</span></div>
+          <hr>
+          <div class="row"><span><span class="ok">✓</span> WhatsApp</span><span class="dim">2 min ago</span></div>
+          <div class="row"><span><span class="ok">✓</span> Reminders</span><span class="dim">2 min ago</span></div>
+          <div class="row"><span><span class="ok">✓</span> Calendar</span><span class="dim">2 min ago</span></div>
+          <div class="row"><span><span class="ok">✓</span> Claude Code</span><span class="dim">2 min ago</span></div>
+          <div class="row"><span><span class="warn">⚠</span> Notes</span><span class="dim">Notes was busy</span></div>
+          <hr>
+          <div class="row sel"><span>Run Now</span><span class="dim"></span></div>
+          <div class="row"><span>Pause</span><span class="dim"></span></div>
+          <div class="row"><span>Open Viewer</span><span class="dim"></span></div>
+          <div class="row"><span>Show Log</span><span class="dim"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="how" class="alt">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2>A mirror forgets. An archive doesn't.</h2>
+    <p class="sub">Messages expire, notes get deleted, events move. Lifelog reads your data on a schedule, records every change in an append-only ledger, and writes pages you can read with anything.</p>
+    <div class="grid three">
+      <div class="tile">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <h3>Nothing is dropped</h3>
+        <p>Deleted, expired and unsent items stay where they were, struck through and marked with what happened, plus a monthly <code>_Disappeared</code> digest.</p>
+      </div>
+      <div class="tile">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></div>
+        <h3>Plain files, forever</h3>
+        <p>Markdown pages by source and by month, and a Timeline across all of them. Open them in any editor, or give the folder to the AI tool you choose.</p>
+      </div>
+      <div class="tile">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <h3>Offline viewer</h3>
+        <p>A static HTML viewer with full-text search, coverage per source and a timeline. No server, no network: double-click <code>index.html</code>.</p>
+      </div>
+      <div class="tile">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <h3>Lives in the menu bar</h3>
+        <p>Archives every 10 minutes (and hourly for Notes and AI exports), catches up after sleep, and shows each source's last read at a glance.</p>
+      </div>
+      <div class="tile">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>Read-only by design</h3>
+        <p>Lifelog never changes your Apple or WhatsApp data. It only reads, and only writes to the folder you pick.</p>
+      </div>
+      <div class="tile">
+        <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></svg></div>
+        <h3>A CLI underneath</h3>
+        <p>The same binary runs <code>lifelog archive</code>, <code>rebuild</code>, <code>verify</code> and <code>open</code> from Terminal or launchd.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="sources">
+  <div class="wrap">
+    <p class="eyebrow">Sources</p>
+    <h2>Your digital life, in one folder.</h2>
+    <p class="sub">Every source is read locally with macOS permissions you grant once. Nothing leaves your Mac unless you put the archive somewhere that syncs.</p>
+    <div class="grid four">
+      <div class="tile source"><span class="dot" style="background:#e6b422"></span><div><b>Apple Notes</b><small>incl. locked-note stubs</small></div></div>
+      <div class="tile source"><span class="dot" style="background:#e5533d"></span><div><b>Reminders</b><small>open and completed</small></div></div>
+      <div class="tile source"><span class="dot" style="background:#3b82f6"></span><div><b>Calendar</b><small>all history, reschedules</small></div></div>
+      <div class="tile source"><span class="dot" style="background:#25a35a"></span><div><b>WhatsApp</b><small>every chat, every message</small></div></div>
+      <div class="tile source"><span class="dot" style="background:#10a37f"></span><div><b>ChatGPT</b><small>from account exports</small></div></div>
+      <div class="tile source"><span class="dot" style="background:#d97757"></span><div><b>Claude</b><small>from account exports</small></div></div>
+      <div class="tile source"><span class="dot" style="background:#8b6fd6"></span><div><b>Claude Code</b><small>session transcripts</small></div></div>
+      <div class="tile source"><span class="dot" style="background:var(--muted)"></span><div><b>More to come</b><small><a href="https://github.com/djui/lifelog/issues">suggest a source</a></small></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <p class="eyebrow">Careful by default</p>
+    <h2>Absence is not deletion.</h2>
+    <p class="sub">A flaky read should never rewrite your history. An item only counts as gone when all four of these hold.</p>
+    <div class="rules">
+      <div class="rule"><b>The read was complete</b><span>Timeouts, permission errors and partial reads only ever add and update.</span></div>
+      <div class="rule"><b>The item was in scope</b><span>Only items the read would have covered can go missing.</span></div>
+      <div class="rule"><b>It was missing twice</b><span>The first miss is pending and invisible; the second consecutive miss makes it final.</span></div>
+      <div class="rule"><b>The circuit breaker held</b><span>If over 20% of a source vanishes at once, the read is suspected, not your data.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow">Install</p>
+    <h2>Up and running in a minute.</h2>
+    <p class="sub">Download the app, or build it yourself. There are no third-party dependencies.</p>
+    <div class="install">
+      <ol class="steps">
+        <li><b>1. Download and move to Applications</b><span>Get <a href="https://github.com/djui/lifelog/releases/latest">the latest release</a>, unzip it and drag <code>Lifelog.app</code> into <code>/Applications</code>.</span></li>
+        <li><b>2. Open it</b><span>The app is signed but not yet notarized: the first time, right-click it and choose <b>Open</b>.</span></li>
+        <li><b>3. Pick a folder</b><span>Choose an empty archive folder in the menu and click <b>Start Archiving Here…</b>. Turn on <b>Open at Login</b>.</span></li>
+        <li><b>4. Grant access once</b><span>Allow Calendar, Reminders, Notes automation and Full Disk Access (for WhatsApp) when asked.</span></li>
+      </ol>
+      <div class="card">
+        <div class="bar"><i></i><i></i><i></i><span>Terminal</span></div>
+<pre><span class="c"># or build from source (Swift 5.9+)</span>
+<span class="p">$ </span>git clone https://github.com/djui/lifelog
+<span class="p">$ </span>cd lifelog && ./scripts/build.sh
+
+<span class="c"># try it with synthetic data first</span>
+<span class="p">$ </span>./dist/lifelog archive --output ./demo --demo
+<span class="p">$ </span>./dist/lifelog open --output ./demo
+
+<span class="c"># the real thing</span>
+<span class="p">$ </span>./dist/lifelog archive --output ~/Archive</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="privacy">
+      <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+      <div>
+        <h2 style="font-size:26px">A word on privacy</h2>
+        <p>Lifelog keeps other people's WhatsApp messages after they expired or were unsent, in plain text, in the folder you choose. Those people chose to make them disappear; your archive keeps your copy anyway.</p>
+        <p>There's no extra encryption: the archive relies on FileVault and wherever you keep it. Choose that place, and who you share it with, accordingly.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Lifelog · made by <a href="https://github.com/djui">djui</a></span>
+    <span><a href="https://github.com/djui/lifelog">Source</a> · <a href="https://github.com/djui/lifelog/releases">Releases</a> · <a href="https://github.com/djui/lifelog/issues">Issues</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
