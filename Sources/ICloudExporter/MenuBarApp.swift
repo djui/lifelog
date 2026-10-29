@@ -5,7 +5,7 @@ import ServiceManagement
 import SwiftUI
 
 /// The menu bar face of the app: archive runs on a schedule (`Scheduler`), their status, the viewer and the archive
-/// folder, and Open at Login.
+/// folder, Open at Login, and the Settings window.
 struct MenuBarApp: App {
     @StateObject private var model = MenuModel()
 
@@ -37,10 +37,14 @@ struct MenuBarApp: App {
             Button("Choose Archive Folder…") { model.chooseFolder() }
             Divider()
             Toggle("Open at Login", isOn: Binding(get: { model.opensAtLogin }, set: { model.setOpensAtLogin($0) }))
+            SettingsLink { Text("Settings…") }.keyboardShortcut(",")
             Divider()
             Button("Quit iCloud Exporter") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")
         } label: {
             Image(nsImage: MenuBarIcon.image(model.menu?.icon ?? .idle))
+        }
+        Settings {
+            SettingsView(model: model)
         }
     }
 

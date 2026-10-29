@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ICloudExporterCore
+import IOKit.ps
 
 /// Runs each lane's archive when it is due (menu bar plan, PR 2). Every run is a child process of this same
 /// executable with CLI arguments, so a slow Notes read or a crash never blocks the menu, the CLI stays the one code
@@ -9,8 +10,6 @@ import ICloudExporterCore
 @MainActor
 final class Scheduler: ObservableObject {
     static let pausedKey = "pausedUntil"
-    /// Notifications are on unless this is false (a setting in a later version).
-    static let notifyKey = "notify"
 
     @Published private(set) var running: Lane?
     /// The source the running lane reads now, from the child's `--progress` lines.
@@ -38,7 +37,9 @@ final class Scheduler: ObservableObject {
         pausedUntil = (defaults.object(forKey: Self.pausedKey) as? Date).flatMap { $0 > Date() ? $0 : nil }
     }
 
-    var next: Date? { Schedule.next(Lane.all, now: Date(), last: lastRun, pausedUntil: pausedUntil) }
+    var settings: AppSettings { AppSettings.load(defaults) }
+
+    var next: Date? { Schedule.next(settings.lanes, now: Date(), last: lastRun, pausedUntil: pausedUntil) }
 
     func start() {
         guard timer == nil else { return }
@@ -46,6 +47,7 @@ final class Scheduler: ObservableObject {
         // Catch up right after wake instead of waiting for the next minute; disks and networks need a moment.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
+                guard self?.settings.runOnWake == true else { return }
                 try? await Task.sleep(for: .seconds(10))
                 self?.tick()
             }
@@ -55,7 +57,7 @@ final class Scheduler: ObservableObject {
 
     /// Every lane now, also while paused.
     func runNow() {
-        requested = Lane.all
+        requested = settings.lanes
         tick()
     }
 
@@ -68,23 +70,28 @@ final class Scheduler: ObservableObject {
     func tick() {
         agents = LaunchAgents.archiveAgents()
         guard let folder else { return }
+        let settings = settings
+        let lanes = settings.lanes
         records = (try? RunLog(root: folder, host: "app").read().records) ?? []
-        lastRun = Dictionary(uniqueKeysWithValues: Lane.all.compactMap { lane in
+        lastRun = Dictionary(uniqueKeysWithValues: lanes.compactMap { lane in
             Schedule.lastRun(lane, records: records, attempted: attempted[lane.id]).map { (lane.id, $0) }
         })
         checkHealth(folder)
         if let pausedUntil, pausedUntil <= Date() { pause(for: nil); return }
         guard running == nil, agents.isEmpty else { return }
-        let due = requested + Schedule.due(Lane.all, now: Date(), last: lastRun, pausedUntil: pausedUntil).filter { !requested.contains($0) }
+        var scheduled = Schedule.due(lanes, now: Date(), last: lastRun, pausedUntil: pausedUntil).filter { lane in !requested.contains { $0.id == lane.id } }
+        // On battery the hourly lane waits for power, if the user asked for that; Run Now still runs it.
+        if settings.deferOnBattery, Self.onBattery { scheduled.removeAll { $0.id == Lane.hourly.id } }
+        let due = requested + scheduled
         guard let lane = due.first else { return }
         // A run from Terminal holds the lock: try again at the next tick.
         guard !Self.locked(folder) else { return }
-        requested.removeAll { $0 == lane }
+        requested.removeAll { $0.id == lane.id }
         let started = Date()
         attempted[lane.id] = started
         running = lane
         Task {
-            let result = await Runner.run(lane.arguments(output: folder) + ["--progress"], timeout: lane.interval * 3) { step in
+            let result = await Runner.run(settings.arguments(for: lane, output: folder), timeout: lane.interval * 3) { step in
                 Task { @MainActor in self.reading = step.progress == .reading ? step.source : nil }
             }
             running = nil
@@ -102,7 +109,7 @@ final class Scheduler: ObservableObject {
         guard !records.isEmpty, !records.contains(where: { $0.mode == ReadMode.demo.rawValue }) else { health = []; return }
         let report = Health.report(records, now: Date(), whatsAppRunning: Health.whatsAppRunning())
         health = report.warnings
-        guard !notifying, !report.notices.isEmpty, defaults.object(forKey: Self.notifyKey) as? Bool ?? true,
+        guard !notifying, !report.notices.isEmpty, AppSettings.load(defaults).notify,
               let cacheRoot = ArchiveIndex.defaultCacheRoot else { return }
         let sent = ArchiveIndex.cacheDirectory(for: Ledger(root: folder, host: "app"), in: cacheRoot).appendingPathComponent(SentNotices.fileName)
         notifying = true
@@ -110,6 +117,12 @@ final class Scheduler: ObservableObject {
             await Notifier.send(report.notices, sentFile: sent, now: Date())
             notifying = false
         }
+    }
+
+    static var onBattery: Bool {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String? else { return false }
+        return type == kIOPMBatteryPowerKey
     }
 
     static func locked(_ folder: URL) -> Bool {
@@ -120,7 +133,12 @@ final class Scheduler: ObservableObject {
 
 /// One child process of this executable, with its output appended to the app's log.
 enum Runner {
-    struct Result { var status: Int32; var problem: String? }
+    struct Result {
+        var status: Int32
+        var problem: String?
+        /// The last output line, such as a command's summary.
+        var last: String? = nil
+    }
 
     static var log: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/iCloud Exporter/archive.log")
@@ -151,7 +169,8 @@ enum Runner {
                 try? output?.close()
                 let status = process.terminationStatus
                 let timedOut = process.terminationReason == .uncaughtSignal
-                continuation.resume(returning: Result(status: status, problem: status == 0 ? nil : timedOut ? "The run took too long and was stopped." : lines.problem))
+                continuation.resume(returning: Result(status: status, problem: status == 0 ? nil : timedOut ? "The run took too long and was stopped." : lines.problem,
+                                                      last: lines.last))
             }
             do { try process.run() } catch {
                 try? output?.close()
@@ -198,6 +217,11 @@ enum Runner {
             lines = Array(lines.suffix(20))
             lock.unlock()
             steps.forEach(progress)
+        }
+
+        var last: String? {
+            lock.lock(); defer { lock.unlock() }
+            return lines.last
         }
 
         /// The CLI names each failure as "Archive failed (source): …"; else the last line.

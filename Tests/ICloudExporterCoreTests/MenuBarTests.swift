@@ -164,3 +164,70 @@ final class MenuStatusTests: XCTestCase {
         }
     }
 }
+
+final class AppSettingsTests: XCTestCase {
+    func defaults() -> UserDefaults {
+        let name = "icloud-exporter-tests-\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: name) }
+        return UserDefaults(suiteName: name)!
+    }
+
+    func testDefaultsMatchTheCLIAndTheTwoLaunchdAgents() throws {
+        let settings = AppSettings()
+        XCTAssertEqual(settings.lanes, Lane.all)
+        let output = URL(fileURLWithPath: "/tmp/Archive")
+        let config = try Config(arguments: settings.arguments(for: .frequent, output: output))
+        let cli = try Config(arguments: ["archive", "--output", "/tmp/Archive"])
+        XCTAssertEqual([config.backfillSince, config.rescanDays, config.fullSweepDays, config.viewer, config.aiInbox] as [AnyHashable],
+                       [cli.backfillSince, cli.rescanDays, cli.fullSweepDays, cli.viewer, cli.aiInbox] as [AnyHashable], "defaults add no options")
+        XCTAssertTrue(config.progress)
+    }
+
+    func testEveryArchiveOptionReachesTheCLI() throws {
+        var settings = AppSettings()
+        settings.aiInbox = URL(fileURLWithPath: "/tmp/Exports", isDirectory: true)
+        settings.backfillSince = "2015-06-01"
+        settings.rescanDays = 30
+        settings.fullSweepDays = 14
+        settings.viewer = false
+        settings.frequentMinutes = 15
+        settings.sourceLanes = [.notes: Lane.frequent.id, .whatsapp: AppSettings.off]
+        let frequent = try XCTUnwrap(settings.lanes.first)
+        XCTAssertEqual(frequent.interval, 900)
+        XCTAssertEqual(frequent.sources, [.reminders, .calendar, .claudecode, .notes])
+        let config = try Config(arguments: settings.arguments(for: frequent, output: URL(fileURLWithPath: "/tmp/Archive")))
+        XCTAssertEqual(config.sources, [.reminders, .calendar, .claudecode, .notes])
+        XCTAssertEqual(config.aiInbox.path, "/tmp/Exports")
+        XCTAssertEqual(config.backfillSince, Config.civilDate("2015-06-01"))
+        XCTAssertEqual([config.rescanDays, config.fullSweepDays], [30, 14])
+        XCTAssertFalse(config.viewer)
+        XCTAssertFalse(settings.lanes.flatMap(\.sources).contains(.whatsapp), "a source that is off is in no lane")
+    }
+
+    func testALaneWithoutSourcesIsLeftOut() {
+        var settings = AppSettings()
+        for source in Lane.hourly.sources { settings.sourceLanes[source] = AppSettings.off }
+        XCTAssertEqual(settings.lanes.map(\.id), ["frequent"])
+    }
+
+    func testSettingsRoundTripAndIgnoreInvalidValues() {
+        let store = defaults()
+        var settings = AppSettings()
+        settings.notify = false
+        settings.runOnWake = false
+        settings.deferOnBattery = true
+        settings.hourlyMinutes = 120
+        settings.sourceLanes = [.claude: AppSettings.off]
+        settings.backfillSince = "2010-01-01"
+        settings.save(store)
+        XCTAssertEqual(AppSettings.load(store), settings)
+
+        store.set(0, forKey: "rescanDays")
+        store.set("yesterday", forKey: "backfillSince")
+        store.set(["claude": "weekly", "nope": "hourly"], forKey: "sourceLanes")
+        let loaded = AppSettings.load(store)
+        XCTAssertEqual(loaded.rescanDays, 100)
+        XCTAssertNil(loaded.backfillSince)
+        XCTAssertEqual(loaded.sourceLanes, [:])
+    }
+}
