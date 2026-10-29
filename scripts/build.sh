@@ -25,6 +25,8 @@ cp "$build_dir/icloud-exporter" "$macos/icloud-exporter"
 chmod 755 "$macos/icloud-exporter"
 ditto "$build_dir/$resource_bundle" "$resources/$resource_bundle"
 cp "$project_dir/Support/Info.plist" "$contents/Info.plist"
+# Regenerate with: swift scripts/make-icon.swift
+cp "$project_dir/Support/AppIcon.icns" "$resources/AppIcon.icns"
 
 identity="-"
 if identities=$(security find-identity -v -p codesigning 2>/dev/null); then

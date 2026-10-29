@@ -288,6 +288,12 @@ Each line of output names the source, the read mode and what changed. Then check
 ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter verify --output "$HOME/Archive"
 ```
 
+### Menu bar app
+
+Open `dist/icloud-exporter.app` from Finder, or run `icloud-exporter app`, to put iCloud Exporter in the menu bar. It's the same app and binary as the CLI, so the permissions you granted carry over. For now the menu can open the viewer and the archive folder, choose that folder, and turn on Open at Login. Archive runs still come from the launchd agents below; the app will take over scheduling, status and settings in later versions.
+
+The packaged binary starts the menu bar app only when it has no arguments and wasn't started from a terminal. With arguments, or typed in Terminal, it stays the CLI.
+
 ### Scheduling the archive
 
 Use two launchd agents that share one archive folder. They share its lock, so when one is running, the other fails fast and tries again at its next interval.

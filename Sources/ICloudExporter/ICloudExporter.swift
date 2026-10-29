@@ -6,7 +6,10 @@ import Darwin
 struct ICloudExporter {
     @MainActor
     static func main() async {
-        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard case .cli(let arguments) = LaunchMode.current else {
+            MenuBarApp.main()
+            return
+        }
         if arguments.isEmpty || arguments == ["--help"] || arguments == ["help"] || (arguments.count == 2 && arguments[1] == "--help" && Command(rawValue: arguments[0]) != nil) {
             print(Config.help)
             return

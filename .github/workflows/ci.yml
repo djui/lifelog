@@ -24,6 +24,10 @@ jobs:
           bundle=dist/icloud-exporter.app/Contents/Resources/ICloudExporter_ICloudExporterCore.bundle
           test -f "$bundle/notes.js" || test -f "$bundle/Contents/Resources/notes.js"
           codesign -dv --verbose=4 dist/icloud-exporter.app 2>&1 | grep "Identifier=com.djui.icloud-exporter" >/dev/null
+          # The menu bar app: icon in the bundle; with arguments (or from a terminal) the binary stays the CLI.
+          test -s dist/icloud-exporter.app/Contents/Resources/AppIcon.icns
+          test "$(plutil -extract CFBundleIconFile raw dist/icloud-exporter.app/Contents/Info.plist)" = AppIcon
+          ./dist/icloud-exporter.app/Contents/MacOS/icloud-exporter --help | grep "icloud-exporter app" >/dev/null
           test -s "$output/_index.md"
           test -s "$output/Reminders/current-reminders.md"
           test -s "$output/Reminders/completed-recent.md"
