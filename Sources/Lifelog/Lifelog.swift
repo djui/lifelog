@@ -14,7 +14,7 @@ struct Lifelog {
             print(Config.help)
             return
         }
-        if arguments == ["--version"] { print("lifelog 0.1.0"); return }
+        if arguments == ["--version"] { print("lifelog 0.2.0"); return }
         ExportLog.handler = { message in
             FileHandle.standardError.write(Data(("lifelog: \(message)\n").utf8))
         }
