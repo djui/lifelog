@@ -7,14 +7,14 @@
   1. Save this file as ~/Library/LaunchAgents/com.djui.lifelog.archive.plist (the fast agent below).
   2. Save a copy as ~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist and change in it:
        Label          com.djui.lifelog.archive-slow
-       --sources      notes,chatgpt,claude,instagram
+       --sources      notes,chatgpt,claude,instagram,messenger
        StartInterval  3600   (a full Notes read can take minutes)
        log file names archive-slow.log / archive-slow.error.log
   3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.djui.lifelog.archive.plist
      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist
 
   The fast agent runs every 10 minutes because WhatsApp disappearing messages can expire after 24 hours.
-  ChatGPT, Claude and Instagram exports are picked up from ~/Downloads (or add --ai-inbox <folder>); the
+  ChatGPT, Claude, Instagram and Facebook exports are picked up from ~/Downloads (or add --ai-inbox <folder>); the
   app needs access to that folder the first time it runs.
 -->
 <plist version="1.0">

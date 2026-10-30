@@ -13,7 +13,7 @@ public struct AIExport {
     public var warnings: [String]
 }
 
-/// Imports ChatGPT and Claude account exports dropped into an inbox folder, and Instagram ones through `InstagramExportImporter`.
+/// Imports ChatGPT and Claude account exports dropped into an inbox folder, and Instagram and Facebook ones through `MetaExportImporter`.
 ///
 /// Exports are recognized by their contents (a `conversations.json` whose shape matches one service), not by
 /// file name. Only the JSON files are unpacked, into a private temp directory that is removed afterwards.
@@ -47,12 +47,12 @@ public enum AIExportImporter {
         return result
     }
 
-    /// Nil when the zip is not a ChatGPT, Claude or Instagram export.
+    /// Nil when the zip is not a ChatGPT, Claude, Instagram or Facebook export.
     public static func importZip(_ zip: URL) throws -> AIExport? { try importZip(zip, digest: try fileDigest(zip)) }
 
     static func importZip(_ zip: URL, digest: String) throws -> AIExport? {
         let names = try listMembers(zip)
-        guard let member = exportRoot(names) else { return try InstagramExportImporter.importZip(zip, digest: digest, names: names) }
+        guard let member = exportRoot(names) else { return try MetaExportImporter.importZip(zip, digest: digest, names: names) }
         let prefix = String(member.dropLast(conversations.count))
         let siblings = Set(names.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) })
         return try withPrivateDirectory { directory in

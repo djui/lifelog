@@ -43,7 +43,7 @@ enum InstagramFixture {
     }
 }
 
-final class InstagramImporterTests: XCTestCase {
+final class MetaImporterTests: XCTestCase {
     func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -71,22 +71,38 @@ final class InstagramImporterTests: XCTestCase {
         XCTAssertEqual(chat.messages.first?.timestamp, Date(timeIntervalSince1970: 1_700_000_000))
     }
 
-    func testOtherExportsAreNotInstagram() throws {
+    func testFacebookExportsAreMessenger() throws {
         let inbox = try temporaryDirectory()
-        try InstagramFixture.zip(["your_facebook_activity/messages/inbox/bob_1/message_1.json": InstagramFixture.thread([])], named: "facebook.zip", in: inbox)
+        try InstagramFixture.zip(["your_facebook_activity/messages/inbox/bob_1/message_1.json": InstagramFixture.page1,
+                                  "your_facebook_activity/messages/e2ee_cutover/carol_2/message_1.json": InstagramFixture.page2], named: "facebook.zip", in: inbox)
+        try InstagramFixture.zip(["messages/inbox/bob_1/message_1.json": InstagramFixture.page1, "profile_information/facebook_profile.json": "{}"],
+                                 named: "legacy.zip", in: inbox)
+        let result = AIExportImporter.scan(inbox: inbox)
+        XCTAssertEqual(result.warnings, [])
+        XCTAssertEqual(result.records.map(\.source), [.messenger, .messenger])
+        XCTAssertEqual(result.records.first { $0.zip.lastPathComponent == "facebook.zip" }?.chats.map(\.id), ["bob_1", "carol_2"])
+    }
+
+    func testUnrecognizedExportsAreSkipped() throws {
+        let inbox = try temporaryDirectory()
         try InstagramFixture.zip(["messages/inbox/bob_1/message_1.json": InstagramFixture.thread([])], named: "unknown.zip", in: inbox)
+        try InstagramFixture.zip(["your_instagram_activity/messages/inbox/bob_1/message_1.json": InstagramFixture.thread([]),
+                                  "your_facebook_activity/messages/inbox/bob_1/message_1.json": InstagramFixture.thread([])], named: "both.zip", in: inbox)
         try InstagramFixture.zip(["your_instagram_activity/messages/inbox/bob_1/message_1.html": "<html></html>"], named: "html.zip", in: inbox)
+        try InstagramFixture.zip(["your_facebook_activity/messages/inbox/bob_1/message_1.html": "<html></html>"], named: "html-fb.zip", in: inbox)
         let result = AIExportImporter.scan(inbox: inbox)
         XCTAssertEqual(result.records.count, 0)
-        XCTAssertEqual(result.warnings.count, 1)
-        XCTAssertTrue(result.warnings[0].hasPrefix("html.zip: ") && result.warnings[0].contains("JSON"), "\(result.warnings)")
+        XCTAssertEqual(result.warnings.sorted(), [
+            "html-fb.zip: This Facebook export is in HTML format. Request the export again with the format set to JSON.",
+            "html.zip: This Instagram export is in HTML format. Request the export again with the format set to JSON.",
+        ])
     }
 
     func testMojibakeRepairLeavesRealTextAlone() {
-        XCTAssertEqual(InstagramExportImporter.repairMojibake("Caf\u{00C3}\u{00A9}"), "Café")
-        XCTAssertEqual(InstagramExportImporter.repairMojibake("\u{00F0}\u{009F}\u{0098}\u{0080}"), "😀")
-        XCTAssertEqual(InstagramExportImporter.repairMojibake("Café"), "Café")
-        XCTAssertEqual(InstagramExportImporter.repairMojibake("plain"), "plain")
+        XCTAssertEqual(MetaExportImporter.repairMojibake("Caf\u{00C3}\u{00A9}"), "Café")
+        XCTAssertEqual(MetaExportImporter.repairMojibake("\u{00F0}\u{009F}\u{0098}\u{0080}"), "😀")
+        XCTAssertEqual(MetaExportImporter.repairMojibake("Café"), "Café")
+        XCTAssertEqual(MetaExportImporter.repairMojibake("plain"), "plain")
     }
 }
 
