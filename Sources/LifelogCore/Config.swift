@@ -22,7 +22,7 @@ public struct Config {
     public var viewer = true
     /// Print `ArchiveProgress` lines on stdout, for the menu bar app.
     public var progress = false
-    /// Where ChatGPT and Claude export zips are picked up. Zips stay where they are.
+    /// Where ChatGPT, Claude and Instagram export zips are picked up. Zips stay where they are.
     public var aiInbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
 
     static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify", "--no-viewer", "--progress"], .rebuild: ["--no-viewer"], .verify: [], .open: []]
@@ -126,12 +126,12 @@ public struct Config {
       --demo                              Export synthetic examples; no local app access
 
     Archive options:
-      --sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode
+      --sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode,instagram
                                           Sources to archive (default: notes,reminders,calendar,whatsapp)
       --backfill-since YYYY-MM-DD         First run reads history back to this date (default: 2000-01-01)
       --rescan-days N                     Recent history re-read on every run (default: 100)
       --full-sweep-days N                 Days between full re-reads (default: 7)
-      --ai-inbox <directory>              Folder with ChatGPT/Claude export zips (default: ~/Downloads);
+      --ai-inbox <directory>              Folder with ChatGPT/Claude/Instagram export zips (default: ~/Downloads);
                                           each new zip is imported once and left in place
       --notify                            Notify when WhatsApp capture falls behind, reads keep
                                           failing, or an AI export is due
@@ -150,7 +150,7 @@ public struct Config {
 
     Archive layout: _index.md, Timeline/ and _Disappeared/ by month, WhatsApp/<chat>/,
     Calendar/ and Reminders/ by month, Notes/ by account and folder, and ChatGPT/,
-    Claude/ and ClaudeCode/ by the month a chat started, plus _viewer/index.html, an
+    Claude/, ClaudeCode/ and Instagram/ by the month a chat started, plus _viewer/index.html, an
     offline viewer for coverage, disappeared items, search and the timeline. The
     ledger in .archive/ is the source of truth; pages are views of it.
     """
