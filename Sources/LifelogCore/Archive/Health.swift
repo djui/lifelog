@@ -38,7 +38,7 @@ public enum Health {
     public static let earlyWarning: TimeInterval = 20 * 3600
     /// Incomplete or failed reads in a row before a source is flagged.
     public static let failureStreak = 3
-    /// ChatGPT and Claude exports are manual; remind after this long without a new one.
+    /// ChatGPT, Claude and Instagram exports are manual; remind after this long without a new one.
     public static let staleImport: TimeInterval = 45 * 86_400
     /// Closed gaps stay in the warnings this long; `gaps` keeps all of them.
     public static let recentGap: TimeInterval = 30 * 86_400
@@ -110,7 +110,7 @@ public enum Health {
         }
 
         let archiveStart = records.map(\.start).min()
-        for source in [ArchiveSource.chatgpt, .claude] where watched.contains(source) {
+        for source in [ArchiveSource.chatgpt, .claude, .instagram] where watched.contains(source) {
             let lastImport = records.filter { $0.source == source && $0.digest != nil }.map(\.end).max()
             guard let since = lastImport ?? archiveStart, now.timeIntervalSince(since) >= staleImport else { continue }
             let days = Int(now.timeIntervalSince(since) / 86_400)

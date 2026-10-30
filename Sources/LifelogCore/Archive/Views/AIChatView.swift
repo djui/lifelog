@@ -1,9 +1,9 @@
 import Foundation
 
-/// One page per ChatGPT, Claude or Claude Code conversation: `<Service>/YYYY/YYYY-MM/<title>--<id-hash>.md`, by the month
+/// One page per ChatGPT, Claude, Claude Code or Instagram conversation: `<Service>/YYYY/YYYY-MM/<title>--<id-hash>.md`, by the month
 /// of its first message. Messages are the archived items, so a chat grows and its states show per message.
 enum AIChatView {
-    static let sources: [ArchiveSource] = [.chatgpt, .claude, .claudecode]
+    static let sources: [ArchiveSource] = [.chatgpt, .claude, .claudecode, .instagram]
 
     static func message(_ item: ArchivedItem) -> AIArchiveMessage? {
         if case .aiMessage(let value) = item.payload { return value }
