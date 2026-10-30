@@ -357,7 +357,7 @@ final class LaunchAgentAdoptionTests: XCTestCase {
         try write("com.djui.lifelog.archive.plist", label: "com.djui.lifelog.archive",
                   ["archive", "--output", "/Users/me/Archive", "--sources", "whatsapp,reminders,calendar,claudecode", "--notify"], interval: 600, in: agents)
         try write("com.djui.lifelog.archive-slow.plist", label: "com.djui.lifelog.archive-slow",
-                  ["archive", "--output", "/Users/me/Archive", "--sources", "notes,chatgpt,claude,instagram"], interval: 3600, in: agents)
+                  ["archive", "--output", "/Users/me/Archive", "--sources", "notes,chatgpt,claude,instagram,messenger"], interval: 3600, in: agents)
         try write("com.djui.lifelog.plist", label: "com.djui.lifelog", ["export", "--output", "/Users/me/Export"], interval: 600, in: agents)
         try Data("not a plist".utf8).write(to: agents.appendingPathComponent("com.djui.lifelog.broken.plist"))
 

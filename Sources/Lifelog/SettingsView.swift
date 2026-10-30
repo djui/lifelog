@@ -52,7 +52,7 @@ struct GeneralTab: View {
             Toggle("Open at login", isOn: Binding(get: { model.opensAtLogin }, set: { model.setOpensAtLogin($0) }))
             Toggle(isOn: $settings.notify) {
                 Text("Notifications")
-                Text("When WhatsApp falls behind, reads keep failing, or a ChatGPT, Claude or Instagram export is due.")
+                Text("When WhatsApp falls behind, reads keep failing, or a ChatGPT, Claude, Instagram or Facebook export is due.")
             }
         }
         .formStyle(.grouped)
@@ -89,11 +89,11 @@ struct SourcesTab: View {
                 Toggle("Run when the Mac wakes", isOn: $settings.runOnWake)
                 Toggle("Wait for power before hourly runs", isOn: $settings.deferOnBattery)
             }
-            Section("ChatGPT, Claude and Instagram exports") {
+            Section("ChatGPT, Claude, Instagram and Facebook exports") {
                 LabeledContent("Inbox folder") {
                     HStack {
                         Text(settings.aiInbox?.path ?? "~/Downloads").truncationMode(.middle).lineLimit(1)
-                        Button("Choose…") { if let url = chooseFolder("Choose the folder with ChatGPT, Claude and Instagram export zips") { settings.aiInbox = url } }
+                        Button("Choose…") { if let url = chooseFolder("Choose the folder with ChatGPT, Claude, Instagram and Facebook export zips") { settings.aiInbox = url } }
                         if settings.aiInbox != nil { Button("Reset") { settings.aiInbox = nil } }
                     }
                 }

@@ -1,19 +1,23 @@
 import Foundation
 
-/// Imports the direct messages of an Instagram "Download your information" export in JSON format.
+/// Imports the direct messages of an Instagram or Facebook "Download your information" export in JSON format.
 ///
-/// Each conversation is a folder `…/messages/<inbox|message_requests|…>/<thread>/` with `message_1.json`,
-/// `message_2.json` and so on, under `your_instagram_activity/` in current exports. Large exports are split
-/// across several zips, so one zip is never a complete read: Instagram imports only add.
-public enum InstagramExportImporter {
-    static let activityRoot = "your_instagram_activity/messages/"
+/// Both services write each conversation as a folder `…/messages/<inbox|message_requests|…>/<thread>/` with
+/// `message_1.json`, `message_2.json` and so on, under `your_instagram_activity/` or `your_facebook_activity/` in
+/// current exports. Large exports are split across several zips, so one zip is never a complete read: these imports only add.
+public enum MetaExportImporter {
+    static let roots: [(source: ArchiveSource, folder: String, hint: String)] = [
+        (.instagram, "your_instagram_activity/", "instagram"),
+        (.messenger, "your_facebook_activity/", "facebook"),
+    ]
 
-    /// Nil when the zip holds no Instagram messages. `names` are the zip's members.
+    /// Nil when the zip holds no Instagram or Facebook messages. `names` are the zip's members.
     static func importZip(_ zip: URL, digest: String, names: [String]) throws -> AIExport? {
         let members = names.filter(isMessageFile)
-        guard !members.isEmpty, isInstagram(names) else {
-            if names.contains(where: { $0.contains(activityRoot) && $0.hasSuffix(".html") }) {
-                throw ExportError.message("This Instagram export is in HTML format. Request the export again with the format set to JSON.")
+        guard !members.isEmpty, let source = service(names) else {
+            if let html = names.first(where: { name in roots.contains { name.contains($0.folder + "messages/") } && name.hasSuffix(".html") }) {
+                let service = html.contains(roots[0].folder) ? "Instagram" : "Facebook"
+                throw ExportError.message("This \(service) export is in HTML format. Request the export again with the format set to JSON.")
             }
             return nil
         }
@@ -25,13 +29,13 @@ public enum InstagramExportImporter {
             for member in members {
                 let file = directory.appendingPathComponent(member)
                 guard let data = try? Data(contentsOf: file), let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-                    warnings.append("Instagram \(member) could not be read; skipped.")
+                    warnings.append("\(source.displayName) \(member) could not be read; skipped.")
                     continue
                 }
                 threads[threadID(member), default: []].append(object)
             }
-            let parsed = parse(threads)
-            return AIExport(source: .instagram, zip: zip, digest: digest, chats: parsed.records, complete: (warnings + parsed.warnings).isEmpty,
+            let parsed = parse(threads, source: source)
+            return AIExport(source: source, zip: zip, digest: digest, chats: parsed.records, complete: (warnings + parsed.warnings).isEmpty,
                             warnings: warnings + parsed.warnings)
         }
     }
@@ -45,11 +49,14 @@ public enum InstagramExportImporter {
         return true
     }
 
-    /// Facebook exports use the same message format, under `your_facebook_activity/`. Older Instagram exports
-    /// have `messages/` at the root; they are recognized by Instagram files next to it.
-    static func isInstagram(_ names: [String]) -> Bool {
-        if names.contains(where: { $0.contains("your_facebook_activity/") }) { return false }
-        return names.contains { $0.hasPrefix(activityRoot) || $0.contains("/" + activityRoot) || $0.lowercased().contains("instagram") }
+    /// By the activity folder of current exports. Older exports have `messages/` at the root; they are recognized
+    /// by other files naming the service. A zip that names both is left alone.
+    static func service(_ names: [String]) -> ArchiveSource? {
+        let byFolder = roots.filter { root in names.contains { $0.hasPrefix(root.folder) || $0.contains("/" + root.folder) } }
+        if byFolder.count == 1 { return byFolder[0].source }
+        guard byFolder.isEmpty else { return nil }
+        let byName = roots.filter { root in names.contains { $0.lowercased().contains(root.hint) } }
+        return byName.count == 1 ? byName[0].source : nil
     }
 
     /// The thread folder, such as `alice_1234567890`. It stays the same when a request is accepted and moves to the inbox.
@@ -58,14 +65,14 @@ public enum InstagramExportImporter {
         return String(parts[parts.count - 2])
     }
 
-    static func parse(_ threads: [String: [[String: Any]]]) -> SourceResult<AIChatRecord> {
+    static func parse(_ threads: [String: [[String: Any]]], source: ArchiveSource) -> SourceResult<AIChatRecord> {
         var result = SourceResult<AIChatRecord>(records: [])
         for (id, files) in threads.sorted(by: { $0.key < $1.key }) {
             let listed = files.flatMap { ($0["messages"] as? [Any]) ?? [] }
             let raw = listed.compactMap { $0 as? [String: Any] }
             let names = (files.first?["participants"] as? [Any] ?? []).compactMap { ($0 as? [String: Any]).flatMap { text($0["name"]) } }
             let title = files.lazy.compactMap { text($0["title"]) }.first ?? (names.isEmpty ? id : names.joined(separator: ", "))
-            if raw.count < listed.count { result.warnings.append("Instagram chat \(title): some messages are malformed; skipped.") }
+            if raw.count < listed.count { result.warnings.append("\(source.displayName) chat \(title): some messages are malformed; skipped.") }
             // Files list messages newest first, and the export has no message ids.
             var seen: [String: Int] = [:]
             let messages = raw.sorted { (int($0["timestamp_ms"]) ?? 0) < (int($1["timestamp_ms"]) ?? 0) }.map { message -> AIChatMessage in

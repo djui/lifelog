@@ -10,7 +10,7 @@ public struct Lane: Hashable, Identifiable {
     /// WhatsApp's shortest disappearing timer is 24 h, so it is read often.
     public static let frequent = Lane(id: "frequent", name: "Frequent", sources: [.reminders, .calendar, .whatsapp, .claudecode], interval: 600)
     /// A full Notes read can take minutes.
-    public static let hourly = Lane(id: "hourly", name: "Hourly", sources: [.chatgpt, .claude, .instagram, .notes], interval: 3600)
+    public static let hourly = Lane(id: "hourly", name: "Hourly", sources: [.chatgpt, .claude, .instagram, .messenger, .notes], interval: 3600)
     public static let all = [frequent, hourly]
 
     /// Arguments for one archive run of this lane, as the CLI takes them.

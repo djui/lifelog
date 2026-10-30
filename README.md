@@ -1,6 +1,6 @@
 # Lifelog
 
-A local, read-only lifelong archive of your Apple Notes, Reminders and Calendar, your WhatsApp chats, Instagram direct messages, ChatGPT and Claude exports, and Claude Code transcripts. It keeps everything it has ever seen, including messages that later expire or are deleted, as Markdown files plus an offline HTML viewer that you can browse, search, or give to an AI tool of your choice. Lifelog does not change your Apple or WhatsApp data and does not need an API key, web service, MCP server, or ChatGPT subscription. It also still has the original `export` mode, a plain Markdown mirror of Notes, Reminders, Calendar and WhatsApp.
+A local, read-only lifelong archive of your Apple Notes, Reminders and Calendar, your WhatsApp chats, Instagram and Facebook Messenger messages, ChatGPT and Claude exports, and Claude Code transcripts. It keeps everything it has ever seen, including messages that later expire or are deleted, as Markdown files plus an offline HTML viewer that you can browse, search, or give to an AI tool of your choice. Lifelog does not change your Apple or WhatsApp data and does not need an API key, web service, MCP server, or ChatGPT subscription. It also still has the original `export` mode, a plain Markdown mirror of Notes, Reminders, Calendar and WhatsApp.
 
 Lifelog was called icloud-exporter. It now has its own bundle identifier, `com.djui.lifelog`, so macOS treats it as a new app: grant Calendar, Reminders, Notes and Full Disk Access again (Settings → Permissions), and choose your archive folder again. The archive and export folders themselves keep working as they are. The app still recognizes launchd agents named `com.djui.icloud-exporter*`, so **Take Over from launchd…** and **Stop the Export Agent…** work for agents set up before the rename.
 
@@ -135,7 +135,7 @@ The demo replays a few runs, so it shows deleted, expired, revoked, edited and l
 
 ```text
 lifelog archive --output <directory>
-  [--sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode,instagram]
+  [--sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode,instagram,messenger]
   [--backfill-since 2000-01-01]
   [--rescan-days 100]
   [--full-sweep-days 7]
@@ -148,7 +148,7 @@ lifelog verify --output <directory>
 lifelog open --output <directory>
 ```
 
-- `archive` reads the selected sources, records what changed, and rewrites the pages that show changed items. `--sources` defaults to `notes,reminders,calendar,whatsapp`. Add `chatgpt`, `claude` and `claudecode` to archive AI chats as well, and `instagram` for Instagram direct messages (see [Sources](#sources)).
+- `archive` reads the selected sources, records what changed, and rewrites the pages that show changed items. `--sources` defaults to `notes,reminders,calendar,whatsapp`. Add `chatgpt`, `claude` and `claudecode` to archive AI chats as well, and `instagram` and `messenger` for Instagram direct messages and Facebook Messenger chats (see [Sources](#sources)).
 - `rebuild` regenerates every page from the ledger. Use it after deleting or damaging pages, or when an `archive` run reports that its pages were not written.
 - `verify` checks the ledger, the run log and the index cache without changing anything. It prints `Problem:` lines and exits non-zero when the archive cannot be trusted. It prints `Note:` lines for harmless issues, such as a stale cache.
 - `open` opens the offline viewer, `_viewer/index.html`, in your default browser.
@@ -181,7 +181,7 @@ Archive/
     2026/2026-10.md                  # by completion (or deletion) month
   Notes/<account>/<folder>/<title>--<hash>.md
   ChatGPT/2026/2026-10/<title>--<hash>.md   # by the month a chat started
-  Claude/…  ClaudeCode/…  Instagram/…  # same as ChatGPT
+  Claude/…  ClaudeCode/…  Instagram/…  Messenger/…  # same as ChatGPT
   _viewer/index.html                 # offline viewer, plus app.js, style.css and data/
   .archive/
     ledger/<source>/<YYYY-MM>.<host>.jsonl   # append-only source of truth
@@ -223,7 +223,7 @@ Something missing from a read is only marked as gone when all of these hold:
 
 Some sources never tombstone:
 
-- **Instagram** imports are only ever added to, since an export can be split across several zips.
+- **Instagram** and **Messenger** imports are only ever added to, since an export can be split across several zips.
 - **Claude Code** transcripts are only ever added to. Claude Code removes old transcripts on its own, so a vanished session is not a deletion.
 - **A WhatsApp chat that vanishes as a whole** is never tombstoned. Only chats present in a read are in scope, so a removed chat or a re-linked WhatsApp Desktop does not mark every message as deleted.
 
@@ -234,6 +234,7 @@ A missing item plus a new item with the same container and the same text, seen i
 - **Notes, Reminders, Calendar, WhatsApp** use the same access as `export` (see above). Unlike `export`, the archive reads every WhatsApp chat (not just the 20 most active ones), all message types, and all calendar history in chunks of at most four years. Locked notes are kept as stubs with title, folder and dates.
 - **ChatGPT and Claude** (`chatgpt`, `claude`) are imported from the official account exports: in ChatGPT, Settings → Data controls → Export data; in Claude, Settings → Privacy → Export data. Leave the downloaded zip in the AI inbox: `~/Downloads` by default, or the folder you set with `--ai-inbox`. Each run looks at the zips directly in that folder, not in subfolders. Exports are recognized by their contents, not by their file name. Each zip is imported once, tracked by its SHA-256 digest in the run log, and left where it is. A complete export counts as a complete read of that service, so a chat missing from two newer exports becomes `deleted`. Exports are manual, so a chat created and deleted between two exports is never seen.
 - **Instagram** (`instagram`) is imported from the official export: in Instagram, Accounts Center → Your information and permissions → Download your information, with the format set to **JSON** (an HTML export is refused with a warning). Leave the zip in the same inbox as the AI exports. Direct messages are imported from every message folder (inbox, requests and so on); one page per conversation, with each message under the sender's name. Photos, videos, voice messages, stickers and shared posts become placeholders. Meta's broken text encoding (`Ã©` for `é`) is repaired. Large accounts get their export in several zips; each part is imported on its own. Because no single zip is a complete read, Instagram imports only add: an unsent or deleted message stays `active` in the archive.
+- **Messenger** (`messenger`) is imported from the Facebook export the same way: in Facebook, Accounts Center → Your information and permissions → Download your information, format **JSON**; selecting only *Messages* keeps the zip small. Everything said about Instagram above applies. Chats with end-to-end encryption, the default in Messenger since 2024, are not in this export; Lifelog does not read Messenger's separate secure storage download.
 - **Claude Code** (`claudecode`) reads the session transcripts in `~/.claude/projects/` incrementally, picking up only new lines on each run. User and assistant text is kept. Tool calls, tool results and reasoning become one-line placeholders, so work code and tool output stay out of the archive.
 
 ### The offline viewer
@@ -252,7 +253,7 @@ The run log records every read, so the archive can tell when capture falls behin
 
 - WhatsApp is the urgent one. A message on a 24-hour timer is lost for good if no read sees it within 24 hours. `_index.md` and the output of each run warn after 20 hours without a complete WhatsApp read, and again with the possible-loss window once the gap passes 24 hours. They also warn when WhatsApp Desktop (`net.whatsapp.WhatsApp`) is not running.
 - After three failed or partial reads in a row, a source is flagged.
-- ChatGPT, Claude and Instagram are flagged after 45 days without a new export.
+- ChatGPT, Claude, Instagram and Messenger are flagged after 45 days without a new export.
 
 With `--notify`, each of these is also posted once as a macOS notification from `Lifelog`. Allow notifications when macOS asks.
 
@@ -283,7 +284,7 @@ Run the first archive in the foreground from Terminal.app, using the `.app` path
 ```
 
 ```bash
-./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources chatgpt,claude,instagram
+./dist/Lifelog.app/Contents/MacOS/lifelog archive --output "$HOME/Archive" --sources chatgpt,claude,instagram,messenger
 ```
 
 ```bash
@@ -303,7 +304,7 @@ Open `dist/Lifelog.app` from Finder, or run `lifelog app`, to put Lifelog in the
 Choose the archive folder in the menu. In a folder that doesn't hold an archive yet, click **Start Archiving Here…** first; the app warns if the folder isn't empty. From then on the app archives on two schedules, the same split as the two launchd agents below:
 
 - **Frequent**, every 10 minutes: Reminders, Calendar, WhatsApp and Claude Code.
-- **Hourly**: ChatGPT, Claude and Instagram exports, and Notes.
+- **Hourly**: ChatGPT, Claude, Instagram and Facebook exports, and Notes.
 
 It also runs right after the Mac wakes if a schedule is due. Each run is a separate `lifelog archive` process, so a long Notes read never blocks the menu, and runs share the archive lock with any you start in Terminal. Turn on **Open at Login** so archiving continues after a restart.
 
@@ -320,7 +321,7 @@ The menu shows the next run, the source being read, each source's last read (✓
 **Settings…** (⌘,) holds everything the launchd agents' arguments did:
 
 - **General:** the archive folder, Open at login, and notifications.
-- **Sources:** each source on the frequent or hourly schedule, or off; how often each schedule runs; run on wake; wait for power before hourly runs on battery; the folder with ChatGPT, Claude and Instagram exports.
+- **Sources:** each source on the frequent or hourly schedule, or off; how often each schedule runs; run on wake; wait for power before hourly runs on battery; the folder with ChatGPT, Claude, Instagram and Facebook exports.
 - **Permissions:** Calendar, Reminders, Notes automation and Full Disk Access (for WhatsApp), each with a button that opens the right System Settings pane. Checking never shows a prompt.
 - **Advanced:** history from (`--backfill-since`), re-read days (`--rescan-days`), full re-read interval (`--full-sweep-days`), the HTML viewer (`--no-viewer`), and Verify Archive, Rebuild Pages and Show Ledger in Finder.
 
@@ -339,10 +340,10 @@ The [menu bar app](#menu-bar-app) schedules the archive for you. Use launchd ins
 Use two launchd agents that share one archive folder. They share its lock, so when one is running, the other fails fast and tries again at its next interval.
 
 - A fast agent runs `whatsapp,reminders,calendar,claudecode` every 10 minutes, because disappearing messages can expire after 24 hours.
-- A slow agent runs `notes,chatgpt,claude,instagram` every hour, because a full Notes read can take minutes.
+- A slow agent runs `notes,chatgpt,claude,instagram,messenger` every hour, because a full Notes read can take minutes.
 
 1. Copy `launchd/com.djui.lifelog.archive.plist.example` to `~/Library/LaunchAgents/com.djui.lifelog.archive.plist`. Replace every `/ABSOLUTE/PATH/TO/…` placeholder, as for the export agent above.
-2. Save a second copy as `~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist`. In it, change the `Label` to `com.djui.lifelog.archive-slow`, `--sources` to `notes,chatgpt,claude,instagram`, `StartInterval` to `3600`, and the log file names to `archive-slow.log` and `archive-slow.error.log`.
+2. Save a second copy as `~/Library/LaunchAgents/com.djui.lifelog.archive-slow.plist`. In it, change the `Label` to `com.djui.lifelog.archive-slow`, `--sources` to `notes,chatgpt,claude,instagram,messenger`, `StartInterval` to `3600`, and the log file names to `archive-slow.log` and `archive-slow.error.log`.
 3. Add `--notify` to `ProgramArguments` in the fast agent if you want notifications.
 4. Validate and load both agents:
 
@@ -374,7 +375,7 @@ The archive keeps other people's WhatsApp messages after they expired or were de
 - Images, voice notes, videos and attachments are placeholders only. No media files are copied.
 - Inferred `expired` states can be wrong, for example when a message happens to be deleted at about the age of a timer.
 - WhatsApp's database schema is unofficial and can change with any WhatsApp update. The circuit breaker and two-miss rule exist so that such a change produces `unknown` rather than false deletions.
-- The ChatGPT and Claude importers were built against the documented shape of `conversations.json`, but have not yet been checked against real exports. Branches and edits in ChatGPT conversations and attachments in Claude exports are the most likely to differ. Look at the imported chats after your first import. The same goes for the Instagram importer, which follows the JSON layout of current exports (`your_instagram_activity/messages/…`); older exports with `messages/` at the root are recognized only when the zip has other Instagram-named files.
+- The ChatGPT and Claude importers were built against the documented shape of `conversations.json`, but have not yet been checked against real exports. Branches and edits in ChatGPT conversations and attachments in Claude exports are the most likely to differ. Look at the imported chats after your first import. The same goes for the Instagram and Messenger importers, which follow the JSON layout of current exports (`your_instagram_activity/messages/…`, `your_facebook_activity/messages/…`); older exports with `messages/` at the root are recognized only when the zip has other files named after the service.
 - Storage grows forever by design. Text-only is small, a few megabytes per year.
 
 ## Development

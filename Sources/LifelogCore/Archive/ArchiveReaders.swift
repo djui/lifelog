@@ -4,7 +4,7 @@ import Foundation
 public enum ArchiveReaders {
     /// Reminders and Calendar finish quickly, WhatsApp and Claude Code are local files, AI imports unpack zips,
     /// and Notes can take minutes, so it goes last.
-    public static let order: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .notes]
+    public static let order: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .messenger, .notes]
 
     @MainActor
     public static func live(_ config: Config, cursorFile: URL?, digestCache: URL? = nil) -> [ArchiveReader] {
@@ -17,7 +17,7 @@ public enum ArchiveReaders {
             case .reminders: return RemindersArchiveReader(eventKit: eventKit!)
             case .calendar: return CalendarArchiveReader(eventKit: eventKit!)
             case .whatsapp: return WhatsAppArchiveReader()
-            case .chatgpt, .claude, .instagram: return AIExportArchiveReader(source: source, inbox: inbox)
+            case .chatgpt, .claude, .instagram, .messenger: return AIExportArchiveReader(source: source, inbox: inbox)
             case .claudecode: return ClaudeCodeArchiveReader(cursorFile: cursorFile)
             }
         }
@@ -90,7 +90,7 @@ struct WhatsAppArchiveReader: ArchiveReader {
     }
 }
 
-/// One scan of the export inbox per run, shared by the ChatGPT, Claude and Instagram readers.
+/// One scan of the export inbox per run, shared by the ChatGPT, Claude, Instagram and Messenger readers.
 @MainActor
 final class AIInbox {
     let url: URL
@@ -155,7 +155,7 @@ final class ZipDigests {
 }
 
 /// Each new ChatGPT or Claude export zip is one complete read of its service: a chat missing from a newer export
-/// goes the usual way (pending, then deleted). Instagram exports come in parts, so they only add. The zips stay where they are.
+/// goes the usual way (pending, then deleted). Instagram and Facebook exports come in parts, so they only add. The zips stay where they are.
 @MainActor
 struct AIExportArchiveReader: ArchiveReader {
     let source: ArchiveSource
@@ -180,7 +180,7 @@ struct AIExportArchiveReader: ArchiveReader {
             }
         }
         ExportLog.info("\(export.source.rawValue): importing \(export.zip.lastPathComponent)")
-        let scope = export.source == .instagram ? Scope(containers: []) : Scope()
+        let scope = [.instagram, .messenger].contains(export.source) ? Scope(containers: []) : Scope()
         return ArchiveRead(payloads: payloads, scope: scope, complete: export.complete, warnings: export.warnings, digest: export.digest)
     }
 }
