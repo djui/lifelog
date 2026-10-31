@@ -85,6 +85,20 @@ final class LedgerTests: XCTestCase {
         XCTAssertEqual(contents.issues, [])
     }
 
+    func testFileWithNoCompleteLineFailsAndIsNeverCut() throws {
+        let root = try temporaryDirectory()
+        let ledger = Ledger(root: root, host: "mac1")
+        try ledger.append([added(note("n1"), at: now)])
+        let file = root.appendingPathComponent(".archive/ledger/notes/\(JSONLines.month(now)).mac1.jsonl")
+        // A file still syncing or damaged, with no newline anywhere.
+        let damaged = Data("{\"v\":1,\"type\":\"added\",\"at\":\"2026-09-07".utf8)
+        try damaged.write(to: file)
+
+        XCTAssertThrowsError(try ledger.read()) { XCTAssertTrue("\($0.localizedDescription)".contains("no complete line")) }
+        XCTAssertThrowsError(try ledger.append([added(note("n2"), at: now + 1)]))
+        XCTAssertEqual(try Data(contentsOf: file), damaged, "the file is left as it was")
+    }
+
     func testCorruptLinesAndForeignFilesAreReportedNotFatal() throws {
         let root = try temporaryDirectory()
         let ledger = Ledger(root: root, host: "mac1")

@@ -163,6 +163,8 @@ enum JSONLines {
 
     /// Appends complete lines with O_APPEND and a full fsync. A torn tail left by an
     /// interrupted earlier write is cut off first, so torn lines only ever sit at the end.
+    /// A file with no complete line is never cut: it is not a torn write of ours but a file
+    /// still syncing or damaged, and cutting it would empty it.
     static func append(_ lines: [Data], to url: URL) throws {
         guard !lines.isEmpty else { return }
         let fd = Darwin.open(url.path, O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
@@ -177,7 +179,8 @@ enum JSONLines {
                 var data = Data(count: Int(info.st_size))
                 let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, Int(info.st_size), 0) }
                 guard count == Int(info.st_size) else { throw ExportError.message("Cannot read archive file: \(url.lastPathComponent)") }
-                let keep = data.lastIndex(of: 0x0A).map { $0 + 1 } ?? 0
+                guard let newline = data.lastIndex(of: 0x0A) else { throw incomplete(url.lastPathComponent) }
+                let keep = newline + 1
                 guard ftruncate(fd, off_t(keep)) == 0 else { throw ExportError.message("Cannot repair archive file: \(url.lastPathComponent)") }
                 ExportLog.info("dropped torn last line of \(url.lastPathComponent)")
             }
@@ -198,7 +201,12 @@ enum JSONLines {
         guard fcntl(fd, F_FULLFSYNC) == 0 || fsync(fd) == 0 else { throw ExportError.message("Cannot sync archive file: \(url.lastPathComponent)") }
     }
 
-    /// Reads every host's month files in `folder`. An unterminated last line is torn and ignored.
+    static func incomplete(_ file: String) -> ExportError {
+        .message("Archive file has no complete line, so it may still be syncing or be damaged: \(file). Restore it, or move it aside, before the next run.")
+    }
+
+    /// Reads every host's month files in `folder`. An unterminated last line is torn and ignored,
+    /// but a file with no complete line fails the read rather than reading as empty.
     static func read<Value: Decodable & Timestamped>(_ type: Value.Type, in folder: URL, label: String) throws -> (lines: [Line<Value>], issues: [String]) {
         var lines: [Line<Value>] = []
         var issues: [String] = []
@@ -206,6 +214,7 @@ enum JSONLines {
             guard let (_, host) = parse(name) else { issues.append("\(label)/\(name): unexpected file, ignored"); continue }
             let file = "\(label)/\(name)"
             let data = try Data(contentsOf: folder.appendingPathComponent(name))
+            guard data.isEmpty || data.contains(0x0A) else { throw incomplete(file) }
             let rows = data.split(separator: 0x0A, omittingEmptySubsequences: false)
             for (index, row) in rows.enumerated() where !row.isEmpty {
                 guard index < rows.count - 1 else { issues.append("\(file): ignored torn last line"); continue }
