@@ -15,8 +15,8 @@ public struct AIExport {
 
 /// Imports ChatGPT and Claude account exports dropped into an inbox folder, and Instagram and Facebook ones through `MetaExportImporter`.
 ///
-/// Exports are recognized by their contents (a `conversations.json` whose shape matches one service), not by
-/// file name. Only the JSON files are unpacked, into a private temp directory that is removed afterwards.
+/// Exports are recognized by their contents (a `conversations.json`, or numbered `conversations-000.json`,
+/// `conversations-001.json`, … parts, whose shape matches one service), not by file name. Only the JSON files are unpacked, into a private temp directory that is removed afterwards.
 /// The zips are left in place.
 public enum AIExportImporter {
     static let unzip = URL(fileURLWithPath: "/usr/bin/unzip")
@@ -52,13 +52,16 @@ public enum AIExportImporter {
 
     static func importZip(_ zip: URL, digest: String) throws -> AIExport? {
         let names = try listMembers(zip)
-        guard let member = exportRoot(names) else { return try MetaExportImporter.importZip(zip, digest: digest, names: names) }
-        let prefix = String(member.dropLast(conversations.count))
+        guard let (prefix, members) = exportRoot(names) else { return try MetaExportImporter.importZip(zip, digest: digest, names: names) }
         let siblings = Set(names.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) })
         return try withPrivateDirectory { directory in
-            let data = try extract(member, from: zip, to: directory)
-            guard let items = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else {
-                throw ExportError.message("conversations.json is not a JSON list.")
+            var items: [Any] = []
+            for member in members {
+                let data = try extract(member, from: zip, to: directory)
+                guard let part = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else {
+                    throw ExportError.message("\((member as NSString).lastPathComponent) is not a JSON list.")
+                }
+                items += part
             }
             guard let source = service(of: items, siblings: siblings) else { return nil }
             let parsed: SourceResult<AIChatRecord>
@@ -72,16 +75,33 @@ public enum AIExportImporter {
         }
     }
 
-    /// `conversations.json` at the zip root or inside one top-level folder.
-    static func exportRoot(_ names: [String]) -> String? {
-        names.filter { name in
+    /// The folder prefix and conversation members of an export: `conversations.json`, or else the numbered
+    /// `conversations-NNN.json` parts in numeric order, at the zip root or inside one top-level folder.
+    static func exportRoot(_ names: [String]) -> (prefix: String, members: [String])? {
+        let candidates = names.compactMap { name -> (prefix: String, file: String, part: Int?)? in
             let parts = name.split(separator: "/", omittingEmptySubsequences: false)
-            return parts.last.map(String.init) == conversations && parts.count <= 2 && !name.contains("..") && !name.contains(where: "*?[]\\".contains)
-        }.min { $0.count < $1.count }
+            guard parts.count <= 2, !name.contains(".."), !name.contains(where: "*?[]\\".contains), let file = parts.last.map(String.init) else { return nil }
+            let prefix = String(name.dropLast(file.count))
+            if file == conversations { return (prefix, file, nil) }
+            guard let number = conversationPart(file) else { return nil }
+            return (prefix, file, number)
+        }
+        guard let prefix = candidates.map(\.prefix).min(by: { $0.count < $1.count }) else { return nil }
+        let here = candidates.filter { $0.prefix == prefix }
+        if here.contains(where: { $0.part == nil }) { return (prefix, [prefix + conversations]) }
+        return (prefix, here.sorted { ($0.part!, $0.file) < ($1.part!, $1.file) }.map { prefix + $0.file })
+    }
+
+    /// The number in `conversations-NNN.json`, ChatGPT's name for one part of a split export.
+    static func conversationPart(_ file: String) -> Int? {
+        guard file.hasPrefix("conversations-"), file.hasSuffix(".json") else { return nil }
+        let digits = file.dropFirst("conversations-".count).dropLast(".json".count)
+        guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber) else { return nil }
+        return Int(digits)
     }
 
     /// ChatGPT conversations carry a `mapping` tree, Claude ones a `chat_messages` list. An empty export is
-    /// recognized by the files next to `conversations.json`.
+    /// recognized by the files next to the conversations.
     static func service(of items: [Any], siblings: Set<String>) -> ArchiveSource? {
         let objects = items.compactMap { $0 as? [String: Any] }
         if objects.contains(where: { $0["mapping"] != nil }) { return .chatgpt }
