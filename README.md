@@ -6,7 +6,7 @@ Lifelog was called icloud-exporter. It now has its own bundle identifier, `com.d
 
 Requires macOS 14 or newer and Swift 5.9 or newer to build. There are no third-party package dependencies.
 
-**The easiest way to run it is the menu bar app.** Build it, open `dist/Lifelog.app`, choose an empty archive folder and click **Start Archiving Here…**. It then keeps a [lifelong archive](#lifelong-archive) on a schedule and shows what it does in the menu bar; see [Menu bar app](#menu-bar-app). The CLI below does the same from Terminal or launchd.
+**The easiest way to run it is the menu bar app.** Build it, open `dist/Lifelog.app`, choose an empty archive folder in Settings and click **Start Archiving Here…**. It then keeps a [lifelong archive](#lifelong-archive) on a schedule and shows what it does in the menu bar; see [Menu bar app](#menu-bar-app). The CLI below does the same from Terminal or launchd.
 
 ## Build and try it
 
@@ -301,7 +301,7 @@ Each line of output names the source, the read mode and what changed. Then check
 
 Open `dist/Lifelog.app` from Finder, or run `lifelog app`, to put Lifelog in the menu bar. It's the same app and binary as the CLI, so the permissions you granted carry over.
 
-Choose the archive folder in the menu. In a folder that doesn't hold an archive yet, click **Start Archiving Here…** first; the app warns if the folder isn't empty. From then on the app archives on two schedules, the same split as the two launchd agents below:
+Choose the archive folder in **Settings… → General**. In a folder that doesn't hold an archive yet, click **Start Archiving Here…** first; the app warns if the folder isn't empty. From then on the app archives on two schedules, the same split as the two launchd agents below:
 
 - **Frequent**, every 10 minutes: Reminders, Calendar, WhatsApp and Claude Code.
 - **Hourly**: ChatGPT, Claude, Instagram and Facebook exports, and Notes.

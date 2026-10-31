@@ -4,8 +4,8 @@ import LifelogCore
 import ServiceManagement
 import SwiftUI
 
-/// The menu bar face of the app: archive runs on a schedule (`Scheduler`), their status, the viewer and the archive
-/// folder, Open at Login, and the Settings window.
+/// The menu bar face of the app: archive runs on a schedule (`Scheduler`), their status, the viewer, opening the archive
+/// folder, Open at Login, and the Settings window, where the archive folder is chosen.
 struct MenuBarApp: App {
     @StateObject private var model = MenuModel()
 
@@ -37,7 +37,6 @@ struct MenuBarApp: App {
             Divider()
             Button("Open Viewer") { model.openViewer() }.keyboardShortcut("o")
             Button("Open Archive Folder") { model.openFolder() }.disabled(model.folder == nil)
-            Button("Choose Archive Folder…") { model.chooseFolder() }
             Divider()
             Toggle("Open at Login", isOn: Binding(get: { model.opensAtLogin }, set: { model.setOpensAtLogin($0) }))
             SettingsLink { Text("Settings…") }.keyboardShortcut(",")
@@ -145,7 +144,7 @@ final class MenuModel: ObservableObject {
     /// Status lines under the folder: what runs, what's next, and what went wrong.
     var status: [String] {
         let scheduler = scheduler
-        guard folder != nil else { return ["Choose an archive folder to start archiving."] }
+        guard folder != nil else { return ["Choose an archive folder in Settings to start archiving."] }
         guard started else { return ["No archive in this folder yet."] }
         if !scheduler.agents.isEmpty {
             return ["Runs come from launchd (\(scheduler.agents.count) archive agent\(scheduler.agents.count == 1 ? "" : "s")). Take over to let the app schedule them."]
