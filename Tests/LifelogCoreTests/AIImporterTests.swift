@@ -147,6 +147,30 @@ final class AIExportImporterTests: XCTestCase {
         XCTAssertEqual(chat.messages[2].text, "Thanks", "messages without content blocks fall back to text")
     }
 
+    func testChatGPTExportSplitIntoNumberedParts() throws {
+        let inbox = try temporaryDirectory()
+        let third = #"[{"title": "Third", "create_time": 1700002000, "conversation_id": "c-3", "mapping": {\#(node("only", parent: nil, children: [], role: "user", text: "hi", time: 1_700_002_000))}}]"#
+        try zip(["conversations-000.json": chatGPTConversations, "conversations-001.json": third, "chat.html": "<html></html>",
+                 "conversation_asset_file_names.json": "{}", "ads.json": "[]"], named: "split.zip", in: inbox)
+        let result = AIExportImporter.scan(inbox: inbox)
+        XCTAssertEqual(result.warnings, [])
+        let export = try XCTUnwrap(result.records.first)
+        XCTAssertEqual(export.source, .chatgpt)
+        XCTAssertTrue(export.complete)
+        XCTAssertEqual(export.chats.map(\.id), ["c-1", "c-2", "c-3"], "parts are joined in order")
+        XCTAssertEqual(export.chats.first?.messages.map(\.id), ["u1", "a2", "u2b", "call", "out", "a3"])
+    }
+
+    func testNumberedPartsAreFoundInOrder() {
+        let names = ["export/chat.html", "export/conversations-10.json", "export/conversations-2.json", "export/conversations-x.json",
+                     "export/conversations-.json", "export/deeper/conversations-0.json"]
+        let root = AIExportImporter.exportRoot(names)
+        XCTAssertEqual(root?.prefix, "export/")
+        XCTAssertEqual(root?.members, ["export/conversations-2.json", "export/conversations-10.json"], "numeric, not lexical, order")
+        XCTAssertEqual(AIExportImporter.exportRoot(["conversations.json", "conversations-000.json"])?.members, ["conversations.json"])
+        XCTAssertNil(AIExportImporter.exportRoot(["a/b/conversations-000.json", "conversations-0*.json"]))
+    }
+
     func testEmptyExportsAreRecognizedBySiblingFiles() throws {
         let inbox = try temporaryDirectory()
         try zip(["conversations.json": "[]", "message_feedback.json": "[]"], named: "a.zip", in: inbox)
