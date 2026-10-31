@@ -53,7 +53,7 @@ An archive, not a mirror: a mirror forgets, Lifelog does not. Items that disappe
 - Viewer: `Sources/LifelogCore/Resources/viewer/`.
 - Design rationale: `docs/plans/lifelong-archive.md`.
 - Synthetic demo data: `Sources/LifelogCore/Demo.swift` (`lifelog archive --demo`).
-- Notarized releases on GitHub (v0.1.0, v0.2.0, v0.2.1).
+- Notarized releases on GitHub (v0.1.0, v0.2.0, v0.2.1, v0.2.2).
 - There are no testimonials, user counts, press or benchmarks; do not invent any.
 
 ## Product Principles
