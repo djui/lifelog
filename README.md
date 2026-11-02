@@ -145,12 +145,14 @@ lifelog archive --output <directory>
   [--demo]
 lifelog rebuild --output <directory> [--no-viewer]
 lifelog verify --output <directory>
+lifelog dedupe --output <directory> [--apply] [--no-viewer]
 lifelog open --output <directory>
 ```
 
 - `archive` reads the selected sources, records what changed, and rewrites the pages that show changed items. `--sources` defaults to `notes,reminders,calendar,whatsapp`. Add `chatgpt`, `claude` and `claudecode` to archive AI chats as well, `instagram` and `messenger` for Instagram direct messages and Facebook Messenger chats, and `facebook` for the rest of your Facebook activity (see [Sources](#sources)).
 - `rebuild` regenerates every page from the ledger. Use it after deleting or damaging pages, or when an `archive` run reports that its pages were not written.
 - `verify` checks the ledger, the run log and the index cache without changing anything. It prints `Problem:` lines and exits non-zero when the archive cannot be trusted. It prints `Note:` lines for harmless issues, such as a stale cache.
+- `dedupe` lists Claude Code messages that older archives hold twice: once under `<chat>/<uuid>#<uuid>`, from a read that saw a repeated transcript line, and once under `<chat>/<uuid>`. It writes nothing unless you add `--apply`. Then it appends one `rekeyed` event per duplicate, which folds it into its plain twin with the earlier first sighting, and rebuilds the pages. No ledger line is changed or removed. A `#` item without a plain twin is the only copy and stays.
 - `open` opens the offline viewer, `_viewer/index.html`, in your default browser.
 
 Each source is read in one of three modes:

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Command: String, CaseIterable {
-    case export, archive, rebuild, verify, open
+    case export, archive, rebuild, verify, dedupe, open
 }
 
 public struct Config {
@@ -22,14 +22,16 @@ public struct Config {
     public var viewer = true
     /// Print `ArchiveProgress` lines on stdout, for the menu bar app.
     public var progress = false
+    /// Append the dedupe events instead of only listing them.
+    public var apply = false
     /// Where ChatGPT, Claude, Instagram and Facebook export zips are picked up. Zips stay where they are.
     public var aiInbox = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
 
-    static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify", "--no-viewer", "--progress"], .rebuild: ["--no-viewer"], .verify: [], .open: []]
+    static let flags: [Command: Set<String>] = [.export: ["--demo"], .archive: ["--demo", "--notify", "--no-viewer", "--progress"], .rebuild: ["--no-viewer"], .verify: [], .dedupe: ["--apply", "--no-viewer"], .open: []]
     static let valued: [Command: Set<String>] = [
         .export: ["--output", "--sources", "--past-days", "--future-days", "--completed-days"],
         .archive: ["--output", "--sources", "--backfill-since", "--rescan-days", "--full-sweep-days", "--ai-inbox"],
-        .rebuild: ["--output"], .verify: ["--output"], .open: ["--output"],
+        .rebuild: ["--output"], .verify: ["--output"], .dedupe: ["--output"], .open: ["--output"],
     ]
 
     public init(arguments: [String]) throws {
@@ -48,6 +50,7 @@ public struct Config {
                 if option == "--notify" { notify = true }
                 if option == "--no-viewer" { viewer = false }
                 if option == "--progress" { progress = true }
+                if option == "--apply" { apply = true }
                 continue
             }
             guard Self.valued[command]!.contains(option) else { throw ExportError.message("Unknown option: \(option)") }
@@ -106,6 +109,7 @@ public struct Config {
       lifelog archive --output <directory> [options]
       lifelog rebuild --output <directory> [--no-viewer]
       lifelog verify --output <directory>
+      lifelog dedupe --output <directory> [--apply] [--no-viewer]
       lifelog open --output <directory>
       lifelog app
 
@@ -115,6 +119,9 @@ public struct Config {
                   and revoked items are marked, never dropped
       rebuild     Regenerate every archive page from the ledger
       verify      Check the archive ledger, run log and index cache
+      dedupe      List Claude Code messages archived twice, once under <uuid>#<uuid>;
+                  with --apply, append events that fold each into its plain twin
+                  and rebuild the pages. The ledger is only appended to.
       open        Open the archive's offline HTML viewer in the default browser
       app         Start the menu bar app (also what opening Lifelog.app does)
 
