@@ -152,7 +152,7 @@
       'Items per source and month. Darker is more; a red edge marks months with items that disappeared; hatched months had no complete read. Click a month for its timeline.'));
     const table = h('table', { class: 'heatmap' },
       h('thead', {}, h('tr', {}, h('th', {}, ''), range.map(month => h('th', { class: month.endsWith('-01') || month === range[0] ? 'year' : '' },
-        month.endsWith('-01') || month === range[0] ? month.slice(0, 4) : '')))),
+        month.endsWith('-01') || month === range[0] ? h('span', {}, month.slice(0, 4)) : '')))),
       h('tbody', {}, sources.map(s => h('tr', {}, h('th', { scope: 'row' }, s.name), range.map(month => {
         const counts = s.months[month] || {};
         const n = total(counts);

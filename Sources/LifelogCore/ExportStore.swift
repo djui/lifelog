@@ -66,9 +66,9 @@ public final class ExportStore {
 
     func allows(_ group: String, path: String) -> Bool {
         if group == "index" { return path == "_index.md" }
-        // The HTML viewer: its static app, data scripts and styles.
+        // The HTML viewer: its static app, data scripts, styles and icon.
         if group == ViewerData.group {
-            return layout == .archive && path.hasPrefix(ViewerData.folder + "/") && [".html", ".js", ".css"].contains { path.hasSuffix($0) }
+            return layout == .archive && path.hasPrefix(ViewerData.folder + "/") && [".html", ".js", ".css", ".svg"].contains { path.hasSuffix($0) }
         }
         guard let directory = Self.directory(of: group), path.hasPrefix(directory + "/") else { return false }
         return layout == .archive || ExportSource.exportable.contains { $0.rawValue == group }
