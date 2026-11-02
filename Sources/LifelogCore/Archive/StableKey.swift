@@ -82,8 +82,10 @@ public enum StableKey {
 
     /// Items for one read. Colliding WhatsApp keys gain the message date (V1); anything still
     /// colliding gains the native id, and a later one with other content its content hash, so every item
-    /// of a read has its own key unless it repeats another item exactly.
-    public static func items(_ payloads: [ArchivePayload], at: Date, partition: (ArchivePayload) -> Partition) -> [ArchivedItem] {
+    /// of a read has its own key unless it repeats another item exactly. An AI message that a read with a
+    /// repeat once archived under `<id>#<native id>` keeps that key, so it is not archived a second time.
+    public static func items(_ payloads: [ArchivePayload], at: Date, archived: (ItemKey) -> Bool = { _ in false },
+                             partition: (ArchivePayload) -> Partition) -> [ArchivedItem] {
         var ids = payloads.map(id(of:))
         let hashes = payloads.map(contentHash(of:))
         func disambiguate(_ suffix: (ArchivePayload) -> String) {
@@ -101,6 +103,12 @@ public enum StableKey {
         for index in ids.indices {
             guard let kept = first[ids[index]] else { first[ids[index]] = hashes[index]; continue }
             if kept != hashes[index] { ids[index] += "~\(hashes[index].prefix(16))" }
+        }
+        var taken = Set(ids)
+        for index in ids.indices {
+            guard case .aiMessage = payloads[index], !archived(ItemKey(source: payloads[index].source, id: ids[index])) else { continue }
+            let earlier = "\(ids[index])#\(nativeID(of: payloads[index]))"
+            if !taken.contains(earlier), archived(ItemKey(source: payloads[index].source, id: earlier)) { ids[index] = earlier; taken.insert(earlier) }
         }
         return payloads.indices.map { index in
             let payload = payloads[index]

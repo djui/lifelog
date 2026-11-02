@@ -267,6 +267,11 @@ final class ArchiverTests: XCTestCase {
         XCTAssertEqual(items[0].key.id, "s-1/u1#u1", "the first keeps the key it had before")
         XCTAssertEqual(items[1].key.id, "s-1/u1#u1~\(items[1].contentHash.prefix(16))")
         XCTAssertEqual(items[2].key.id, items[0].key.id, "an exact repeat still collides")
+
+        // Archives from before repeats were dropped hold some messages only under `<id>#<native id>`.
+        let archived: Set<ItemKey> = [ItemKey(source: .claudecode, id: "s-1/u1#u1")]
+        let again = StableKey.items([payload("One")], at: t0, archived: archived.contains) { _ in Partition(date: "2026-09-21", utcOffset: 0) }
+        XCTAssertEqual(again.map(\.key.id), ["s-1/u1#u1"], "a message keeps the key it was archived under")
     }
 
     func testDemoAndRealArchivesDoNotMix() async throws {

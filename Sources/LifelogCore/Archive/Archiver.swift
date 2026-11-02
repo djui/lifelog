@@ -164,7 +164,7 @@ public final class Archiver {
             var appending = false
             do {
                 for read in try await reader.read(request) {
-                    let items = StableKey.items(read.payloads, at: now) { Partition.of($0, fallback: now, timeZone: self.timeZone) }
+                    let items = StableKey.items(read.payloads, at: now, archived: { self.index.items[$0] != nil }) { Partition.of($0, fallback: now, timeZone: self.timeZone) }
                     let observation = Observation(source: source, runID: runID, at: now, complete: read.complete, scope: read.scope, items: items)
                     let result = Merger.merge(index, observation)
                     appending = true
