@@ -150,7 +150,6 @@ public final class Archiver {
         let started = Date()
         func end() -> Date { now.addingTimeInterval(max(0, Date().timeIntervalSince(started))) }
         let runID = "\(JSONLines.timestamp.string(from: now))-\(ledger.host)"
-        let imported = Set(records.compactMap(\.digest))
         var summary = ArchiveSummary()
         var cacheValid = true
         let before = index
@@ -159,7 +158,7 @@ public final class Archiver {
         for reader in readers {
             let source = reader.source
             let mode = reader.fixedMode ?? Self.mode(for: source, records: records, now: now, options: options)
-            let request = self.request(mode, now: now, source: source, imported: imported)
+            let request = self.request(mode, now: now, source: source, imported: Self.importedDigests(records, for: source))
             ExportLog.info("\(source.rawValue): \(mode.rawValue) read")
             progress(ArchiveProgress(.reading, source))
             var appending = false
@@ -210,6 +209,12 @@ public final class Archiver {
                                                        viewer: viewer ? Viewer(ledger: ledger) : nil) }
         catch { summary.pageError = error.localizedDescription }
         return summary
+    }
+
+    /// Zips to skip: every imported one, except that a Facebook zip imported for Messenger is still new to Facebook, and the other way round.
+    static func importedDigests(_ records: [RunRecord], for source: ArchiveSource) -> Set<String> {
+        let shared: Set<ArchiveSource> = [.messenger, .facebook]
+        return Set(records.filter { $0.source == source || !shared.contains(source) || !shared.contains($0.source) }.compactMap(\.digest))
     }
 
     func request(_ mode: ReadMode, now: Date, source: ArchiveSource, imported: Set<String>) -> ArchiveReadRequest {

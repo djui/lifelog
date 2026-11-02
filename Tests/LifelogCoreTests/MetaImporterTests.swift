@@ -126,3 +126,100 @@ extension ArchiverTests {
         XCTAssertTrue(items.allSatisfy { $0.key.source == .instagram })
     }
 }
+
+/// Synthetic files in the shapes of Facebook's JSON export, outside Messenger.
+enum FacebookFixture {
+    static let posts = #"""
+    [{"timestamp": 1700000000, "title": "Me wrote on Alice's profile.", "data": [{"post": "GlÃ¼ckwunsch!"}, {}]},
+     {"timestamp": 1700000100, "title": "Me shared a link.", "attachments": [{"data": [{"external_context": {"url": "https://example.com"}}]}], "data": [{}]},
+     {"timestamp": 1700000100, "title": "Me added a photo.", "attachments": [{"data": [{"media": {"uri": "your_facebook_activity/posts/media/p/1.jpg", "description": "Lake"}}]}], "data": [{}]}]
+    """#
+    static let comments = #"{"comments_v2": [{"timestamp": 1702000000, "data": [{"comment": {"comment": "Nice", "author": "Me", "group": "Runners"}}], "title": "Me commented on Bob's post."}]}"#
+    static let events = #"{"event_responses_v2": {"events_joined": [{"name": "Picnic", "start_timestamp": 1700100000, "end_timestamp": 0}], "events_declined": [{"name": "Gala", "start_timestamp": 1700200000}]}}"#
+    static let sold = #"""
+    [{"timestamp": 1700300000, "media": [], "label_values": [{"label": "Product title", "value": "Lamp"}, {"label": "Buyer allowed calling", "value": "False"},
+      {"dict": [{"dict": [{"label": "Name", "value": "Carol"}], "title": ""}], "title": "Buyer"}], "fbid": "1"},
+     {"media": [], "label_values": [{"label": "Search query", "value": "sofa"}, {"label": "Creation time", "timestamp_value": 1700400000}], "fbid": "2"},
+     {"media": [], "label_values": [{"label": "Option", "value": "Undated"}], "fbid": "3"}]
+    """#
+    static let album = #"{"name": "Trip", "photos": [{"uri": "your_facebook_activity/posts/media/Trip/2.jpg", "creation_timestamp": 1700000200, "title": "Trip"}], "cover_photo": {}, "last_modified_timestamp": 1}"#
+    static let friends = #"{"friends_v2": [{"name": "Dana", "timestamp": 1700500000}]}"#
+
+    static var files: [String: String] {
+        ["your_facebook_activity/posts/your_posts__check_ins__photos_and_videos_1.json": posts,
+         "your_facebook_activity/posts/album/0.json": album,
+         "your_facebook_activity/comments_and_reactions/comments.json": comments,
+         "your_facebook_activity/events/your_event_responses.json": events,
+         "your_facebook_activity/facebook_marketplace/conversations_you_had_as_a_seller.json": sold,
+         "connections/friends/your_friends.json": friends,
+         "ads_information/ads_viewed.json": #"[{"timestamp": 1700000000, "title": "An ad"}]"#,
+         "your_facebook_activity/messages/inbox/bob_1/message_1.json": InstagramFixture.page1]
+    }
+}
+
+final class FacebookImporterTests: XCTestCase {
+    let utc = TimeZone(identifier: "UTC")!
+
+    func testFacebookZipGivesMessengerAndFacebookExports() throws {
+        let inbox = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: inbox) }
+        try InstagramFixture.zip(FacebookFixture.files, named: "facebook.zip", in: inbox)
+        let result = AIExportImporter.scan(inbox: inbox)
+        XCTAssertEqual(result.warnings, [])
+        XCTAssertEqual(result.records.map(\.source), [.messenger, .facebook])
+        XCTAssertEqual(result.records[0].chats.map(\.id), ["bob_1"])
+    }
+
+    func testEntriesBecomeMonthlyCategoryChats() throws {
+        let files = FacebookFixture.files.compactMap { path, json -> (member: String, file: FacebookExportImporter.File, json: Any)? in
+            FacebookExportImporter.members([path]).first.map { ($0.member, $0.file, try! JSONSerialization.jsonObject(with: Data(json.utf8))) }
+        }
+        XCTAssertEqual(files.count, 6, "ads and Messenger files are not Facebook items")
+        let chats = FacebookExportImporter.chats(files, timeZone: utc)
+        XCTAssertEqual(chats.map(\.id), ["comments/2023-12", "events/2023-11", "friends/2023-11", "marketplace/2023-11", "photos-and-videos/2023-11", "posts/2023-11"])
+        XCTAssertEqual(chats.map(\.title).last, "Posts 2023-11")
+        func messages(_ id: String) -> [AIChatMessage] { chats.first { $0.id == id }!.messages }
+
+        let posts = messages("posts/2023-11")
+        XCTAssertEqual(posts.map(\.text), ["Me wrote on Alice's profile.\nGlückwunsch!", "Me added a photo.\nLake", "Me shared a link."])
+        XCTAssertEqual(posts.map(\.attachments), [[], ["[photo: 1.jpg]"], ["[link: https://example.com]"]])
+        XCTAssertEqual(Set(posts.compactMap(\.id)).count, 3, "entries in the same second get their own ids")
+        XCTAssertEqual(posts[0].id, "posts/your_posts__check_ins__photos_and_videos_1/1700000000")
+
+        XCTAssertEqual(messages("photos-and-videos/2023-11").map(\.text), ["Trip"])
+        XCTAssertEqual(messages("comments/2023-12").map(\.text), ["Me commented on Bob's post.\nNice\nGroup: Runners"])
+        XCTAssertEqual(messages("events/2023-11").map(\.role), ["Event: joined", "Event: declined"])
+        XCTAssertEqual(messages("events/2023-11").map(\.text), ["Picnic", "Gala"])
+        let market = messages("marketplace/2023-11")
+        XCTAssertEqual(market.map(\.text), ["Product title: Lamp\nBuyer: Carol", "Search query: sofa"], "flags and undated entries are left out")
+        XCTAssertEqual(market.map(\.timestamp), [Date(timeIntervalSince1970: 1_700_300_000), Date(timeIntervalSince1970: 1_700_400_000)])
+        XCTAssertEqual(messages("friends/2023-11").map { "\($0.role): \($0.text)" }, ["Became friends: Dana"])
+    }
+
+    func testPatternsStayWithinOneFolder() {
+        XCTAssertTrue(FacebookExportImporter.matches("your_facebook_activity/posts/album/12.json", "your_facebook_activity/posts/album/*.json"))
+        XCTAssertFalse(FacebookExportImporter.matches("your_facebook_activity/posts/album/x/12.json", "your_facebook_activity/posts/album/*.json"))
+        XCTAssertFalse(FacebookExportImporter.matches("x/your_facebook_activity/posts/album/12.json", "your_facebook_activity/posts/album/*.json"))
+    }
+}
+
+extension ArchiverTests {
+    /// A Facebook zip already imported for Messenger, before the Facebook source was turned on, is still imported for Facebook.
+    func testFacebookImportsAZipMessengerAlreadyImported() async throws {
+        let root = try temporaryDirectory()
+        let inbox = try temporaryDirectory()
+        try InstagramFixture.zip(FacebookFixture.files, named: "facebook.zip", in: inbox)
+        let first = try await archiver(root).run([AIExportArchiveReader(source: .messenger, inbox: AIInbox(url: inbox))], now: t0)
+        XCTAssertEqual(first.lines.map(\.source), [.messenger])
+        let shared = AIInbox(url: inbox)
+        let second = try await archiver(root).run([AIExportArchiveReader(source: .messenger, inbox: shared), AIExportArchiveReader(source: .facebook, inbox: shared)],
+                                                  now: t0 + day)
+        XCTAssertEqual(second.lines.map(\.source), [.facebook])
+        XCTAssertGreaterThan(second.added, 0)
+        let third = try await archiver(root).run([AIExportArchiveReader(source: .messenger, inbox: AIInbox(url: inbox)),
+                                                  AIExportArchiveReader(source: .facebook, inbox: AIInbox(url: inbox))], now: t0 + 2 * day)
+        XCTAssertTrue(third.lines.isEmpty)
+        XCTAssertTrue(try archiver(root).index.items.values.allSatisfy { $0.state == .active })
+    }
+}

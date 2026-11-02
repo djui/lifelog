@@ -4,7 +4,7 @@ import Foundation
 public enum ArchiveReaders {
     /// Reminders and Calendar finish quickly, WhatsApp and Claude Code are local files, AI imports unpack zips,
     /// and Notes can take minutes, so it goes last.
-    public static let order: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .messenger, .notes]
+    public static let order: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .messenger, .facebook, .notes]
 
     @MainActor
     public static func live(_ config: Config, cursorFile: URL?, digestCache: URL? = nil) -> [ArchiveReader] {
@@ -17,7 +17,7 @@ public enum ArchiveReaders {
             case .reminders: return RemindersArchiveReader(eventKit: eventKit!)
             case .calendar: return CalendarArchiveReader(eventKit: eventKit!)
             case .whatsapp: return WhatsAppArchiveReader()
-            case .chatgpt, .claude, .instagram, .messenger: return AIExportArchiveReader(source: source, inbox: inbox)
+            case .chatgpt, .claude, .instagram, .messenger, .facebook: return AIExportArchiveReader(source: source, inbox: inbox)
             case .claudecode: return ClaudeCodeArchiveReader(cursorFile: cursorFile)
             }
         }
@@ -90,23 +90,24 @@ struct WhatsAppArchiveReader: ArchiveReader {
     }
 }
 
-/// One scan of the export inbox per run, shared by the ChatGPT, Claude, Instagram and Messenger readers.
+/// The export inbox, shared by the ChatGPT, Claude, Instagram, Messenger and Facebook readers. Readers skip different
+/// zips (a Facebook zip imported for Messenger is still new to Facebook), so each scans, but a zip is unpacked once per run.
 @MainActor
 final class AIInbox {
     let url: URL
     /// Digests of the zips seen before, in the cache folder. The inbox is often `~/Downloads`.
-    let digestCache: URL?
-    private var scanned: SourceResult<AIExport>?
+    let digests: ZipDigests
+    private var parsed: [String: Result<[AIExport], Error>] = [:]
 
-    init(url: URL, digestCache: URL? = nil) { self.url = url; self.digestCache = digestCache }
+    init(url: URL, digestCache: URL? = nil) { self.url = url; digests = ZipDigests(file: digestCache) }
 
-    func exports(skipping digests: Set<String>) -> SourceResult<AIExport> {
-        if let scanned { return scanned }
+    func exports(skipping skipped: Set<String>) -> SourceResult<AIExport> {
         ExportLog.info("ai exports: scanning \(url.path)")
-        let cache = ZipDigests(file: digestCache)
-        let result = AIExportImporter.scan(inbox: url, skipDigests: digests, digest: cache.digest)
-        cache.save()
-        scanned = result
+        let result = AIExportImporter.scan(inbox: url, skipDigests: skipped, digest: digests.digest) { zip, digest in
+            if self.parsed[digest] == nil { self.parsed[digest] = Result { try AIExportImporter.importZip(zip, digest: digest) } }
+            return try self.parsed[digest]!.get()
+        }
+        digests.save()
         return result
     }
 }
@@ -116,7 +117,7 @@ final class AIInbox {
 final class ZipDigests {
     struct Entry: Codable, Equatable { var stamp: FileStamp; var digest: String }
     let file: URL?
-    private let known: [String: Entry]
+    private var known: [String: Entry]
     private(set) var seen: [String: Entry] = [:]
     private(set) var hashed = 0
 
@@ -132,7 +133,7 @@ final class ZipDigests {
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let stamp = FileStamp(size: values.fileSize ?? 0, modified: values.contentModificationDate?.timeIntervalSince1970 ?? 0)
         let path = url.standardizedFileURL.path
-        if let entry = known[path], entry.stamp == stamp {
+        if let entry = seen[path] ?? known[path], entry.stamp == stamp {
             seen[path] = entry
             return entry.digest
         }
@@ -148,6 +149,7 @@ final class ZipDigests {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONLines.encoder.encode(seen).write(to: file, options: .atomic)
+            known = seen
         } catch {
             ExportLog.info("could not write the AI inbox digest cache: \(error.localizedDescription)")
         }
@@ -180,7 +182,7 @@ struct AIExportArchiveReader: ArchiveReader {
             }
         }
         ExportLog.info("\(export.source.rawValue): importing \(export.zip.lastPathComponent)")
-        let scope = [.instagram, .messenger].contains(export.source) ? Scope(containers: []) : Scope()
+        let scope = [.instagram, .messenger, .facebook].contains(export.source) ? Scope(containers: []) : Scope()
         return ArchiveRead(payloads: payloads, scope: scope, complete: export.complete, warnings: export.warnings, digest: export.digest)
     }
 }

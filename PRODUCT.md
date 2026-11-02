@@ -14,7 +14,7 @@ Primarily the author, keeping a lifelong record of their own notes, reminders, c
 
 ## Product Purpose
 
-Lifelog keeps a local, read-only, lifelong archive of Apple Notes, Reminders and Calendar, WhatsApp, Instagram and Facebook Messenger messages, ChatGPT and Claude exports, and Claude Code transcripts. It reads these sources on a schedule, records every change in an append-only ledger, and writes Markdown pages by source and by month, a Timeline across sources, and an offline HTML viewer. Success means that anything the user has once seen can still be found later, even after it expired, was deleted or was unsent at the source.
+Lifelog keeps a local, read-only, lifelong archive of Apple Notes, Reminders and Calendar, WhatsApp, Instagram and Facebook Messenger messages, Facebook activity (posts, comments, groups, events, Marketplace), ChatGPT and Claude exports, and Claude Code transcripts. It reads these sources on a schedule, records every change in an append-only ledger, and writes Markdown pages by source and by month, a Timeline across sources, and an offline HTML viewer. Success means that anything the user has once seen can still be found later, even after it expired, was deleted or was unsent at the source.
 
 ## Positioning
 
