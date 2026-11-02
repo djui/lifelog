@@ -113,10 +113,10 @@ public struct WhatsAppChatRecord: Codable {
     }
 }
 
-/// One message of a ChatGPT, Claude, Claude Code, Instagram or Messenger conversation.
+/// One message of a ChatGPT, Claude, Claude Code, Instagram or Messenger conversation, or one Facebook entry.
 public struct AIChatMessage: Codable, Equatable {
     public var id: String?
-    /// `user`, `assistant`, `system` or `tool`; for Instagram and Messenger, the sender's name.
+    /// `user`, `assistant`, `system` or `tool`; for Instagram and Messenger, the sender's name; for Facebook, the kind of entry.
     public var role: String
     public var timestamp: Date?
     /// Plain text; tool calls, tool output and hidden reasoning are one-line placeholders such as `[tool call: Bash, 120 bytes]`.
@@ -149,7 +149,7 @@ public struct AIChatRecord: Codable, Equatable {
 public enum ExportSource: String, Codable, CaseIterable {
     case notes, reminders, calendar, whatsapp
     /// Archive-only: `export` neither accepts nor reads these.
-    case chatgpt, claude, claudecode, instagram, messenger
+    case chatgpt, claude, claudecode, instagram, messenger, facebook
 
     /// The sources `export` mirrors.
     public static let exportable: [ExportSource] = [.notes, .reminders, .calendar, .whatsapp]
@@ -165,6 +165,7 @@ public enum ExportSource: String, Codable, CaseIterable {
         case .claudecode: return "ClaudeCode"
         case .instagram: return "Instagram"
         case .messenger: return "Messenger"
+        case .facebook: return "Facebook"
         }
     }
 

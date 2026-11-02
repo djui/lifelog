@@ -23,8 +23,9 @@ public enum AIExportImporter {
     static let conversations = "conversations.json"
 
     /// Every export in `inbox` (not recursive), oldest first. Zips whose digest is in `skipDigests` are not unpacked.
-    /// `digest` lets the caller reuse digests of zips it has hashed before.
-    public static func scan(inbox: URL, skipDigests: Set<String> = [], digest: ((URL) throws -> String)? = nil) -> SourceResult<AIExport> {
+    /// `digest` lets the caller reuse digests of zips it has hashed before, and `parse` zips it has parsed before.
+    public static func scan(inbox: URL, skipDigests: Set<String> = [], digest: ((URL) throws -> String)? = nil,
+                            parse: ((URL, String) throws -> [AIExport])? = nil) -> SourceResult<AIExport> {
         var result = SourceResult<AIExport>(records: [])
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         guard let files = try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
@@ -39,7 +40,7 @@ public enum AIExportImporter {
             do {
                 let digest = try (digest ?? fileDigest)(zip)
                 if skipDigests.contains(digest) { continue }
-                if let export = try importZip(zip, digest: digest) { result.records.append(export) }
+                result.records += try (parse ?? importZip)(zip, digest)
             } catch {
                 result.warnings.append("\(zip.lastPathComponent): \(error.localizedDescription)")
             }
@@ -47,10 +48,10 @@ public enum AIExportImporter {
         return result
     }
 
-    /// Nil when the zip is not a ChatGPT, Claude, Instagram or Facebook export.
-    public static func importZip(_ zip: URL) throws -> AIExport? { try importZip(zip, digest: try fileDigest(zip)) }
+    /// Empty when the zip is not a ChatGPT, Claude, Instagram or Facebook export. A Facebook zip gives a Messenger and a Facebook export.
+    public static func importZip(_ zip: URL) throws -> [AIExport] { try importZip(zip, digest: try fileDigest(zip)) }
 
-    static func importZip(_ zip: URL, digest: String) throws -> AIExport? {
+    static func importZip(_ zip: URL, digest: String) throws -> [AIExport] {
         let names = try listMembers(zip)
         guard let (prefix, members) = exportRoot(names) else { return try MetaExportImporter.importZip(zip, digest: digest, names: names) }
         let siblings = Set(names.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) })
@@ -63,7 +64,7 @@ public enum AIExportImporter {
                 }
                 items += part
             }
-            guard let source = service(of: items, siblings: siblings) else { return nil }
+            guard let source = service(of: items, siblings: siblings) else { return [] }
             let parsed: SourceResult<AIChatRecord>
             if source == .chatgpt {
                 parsed = parseChatGPT(items)
@@ -71,7 +72,7 @@ public enum AIExportImporter {
                 let projects = siblings.contains("projects.json") ? try? extract(prefix + "projects.json", from: zip, to: directory) : nil
                 parsed = parseClaude(items, projects: projects)
             }
-            return AIExport(source: source, zip: zip, digest: digest, chats: parsed.records, complete: parsed.warnings.isEmpty, warnings: parsed.warnings)
+            return [AIExport(source: source, zip: zip, digest: digest, chats: parsed.records, complete: parsed.warnings.isEmpty, warnings: parsed.warnings)]
         }
     }
 

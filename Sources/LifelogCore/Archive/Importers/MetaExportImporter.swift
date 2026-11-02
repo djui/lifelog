@@ -5,16 +5,24 @@ import Foundation
 /// Both services write each conversation as a folder `…/messages/<inbox|message_requests|…>/<thread>/` with
 /// `message_1.json`, `message_2.json` and so on, under `your_instagram_activity/` or `your_facebook_activity/` in
 /// current exports. Large exports are split across several zips, so one zip is never a complete read: these imports only add.
+/// A Facebook zip also feeds `FacebookExportImporter`, so it can hold a Messenger and a Facebook export.
 public enum MetaExportImporter {
     static let roots: [(source: ArchiveSource, folder: String, hint: String)] = [
         (.instagram, "your_instagram_activity/", "instagram"),
         (.messenger, "your_facebook_activity/", "facebook"),
     ]
 
-    /// Nil when the zip holds no Instagram or Facebook messages. `names` are the zip's members.
-    static func importZip(_ zip: URL, digest: String, names: [String]) throws -> AIExport? {
+    /// Empty when the zip is not an Instagram or Facebook export. `names` are the zip's members.
+    static func importZip(_ zip: URL, digest: String, names: [String]) throws -> [AIExport] {
+        let source = service(names)
+        let facebook = source == .messenger ? try FacebookExportImporter.importZip(zip, digest: digest, names: names) : nil
+        return try [messages(zip, digest: digest, names: names, source: source), facebook].compactMap { $0 }
+    }
+
+    /// Nil when the zip holds no Instagram or Facebook messages.
+    static func messages(_ zip: URL, digest: String, names: [String], source: ArchiveSource?) throws -> AIExport? {
         let members = names.filter(isMessageFile)
-        guard !members.isEmpty, let source = service(names) else {
+        guard !members.isEmpty, let source else {
             if let html = names.first(where: { name in roots.contains { name.contains($0.folder + "messages/") } && name.hasSuffix(".html") }) {
                 let service = html.contains(roots[0].folder) ? "Instagram" : "Facebook"
                 throw ExportError.message("This \(service) export is in HTML format. Request the export again with the format set to JSON.")
