@@ -264,7 +264,10 @@ final class ArchiveViewTests: XCTestCase {
         XCTAssertFalse(after.keys.contains { $0.hasPrefix("WhatsApp/anna--") })
         XCTAssertTrue(after.keys.contains { $0.hasPrefix("WhatsApp/anna b--") })
         XCTAssertFalse(after.values.contains { $0.contains("anna--") }, "no page links to the old folder")
-        XCTAssertLessThan(summary.pages.written + summary.pages.unchanged, after.count, "untouched pages are not rendered")
+        // Rendered pages include the viewer's files, so they are compared with every owned file, not just the Markdown pages.
+        let viewerFiles = FileManager.default.enumerator(at: root.appendingPathComponent(ViewerData.folder), includingPropertiesForKeys: nil)!
+            .compactMap { $0 as? URL }.filter { !$0.hasDirectoryPath }.count
+        XCTAssertLessThan(summary.pages.written + summary.pages.unchanged, after.count + viewerFiles, "untouched pages are not rendered")
 
         // A run with nothing new renders only `_index.md`, plus the viewer's static app and manifest.
         let quiet = try await archiver(root, zone: Self.newYork).run([], now: runs[2].at + 600)

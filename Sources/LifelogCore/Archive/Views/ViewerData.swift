@@ -34,7 +34,7 @@ public final class Viewer {
 enum ViewerData {
     static let folder = "_viewer"
     static let group = "viewer"
-    static let assets = ["index.html", "app.js", "style.css"]
+    static let assets = ["index.html", "app.js", "style.css", "icon.svg"]
     static let manifestPath = "\(folder)/data/manifest.js"
 
     static func chunkPath(_ source: ArchiveSource, _ month: String) -> String { "\(folder)/data/\(source.rawValue)/\(month).js" }
