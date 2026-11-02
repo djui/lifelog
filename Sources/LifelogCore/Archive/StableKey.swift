@@ -81,9 +81,13 @@ public enum StableKey {
     }
 
     /// Items for one read. Colliding WhatsApp keys gain the message date (V1); anything still
-    /// colliding gains the native id, so every item of a read has its own key.
-    public static func items(_ payloads: [ArchivePayload], at: Date, partition: (ArchivePayload) -> Partition) -> [ArchivedItem] {
+    /// colliding gains the native id, and a later one with other content its content hash, so every item
+    /// of a read has its own key unless it repeats another item exactly. An AI message that a read with a
+    /// repeat once archived under `<id>#<native id>` keeps that key, so it is not archived a second time.
+    public static func items(_ payloads: [ArchivePayload], at: Date, archived: (ItemKey) -> Bool = { _ in false },
+                             partition: (ArchivePayload) -> Partition) -> [ArchivedItem] {
         var ids = payloads.map(id(of:))
+        let hashes = payloads.map(contentHash(of:))
         func disambiguate(_ suffix: (ArchivePayload) -> String) {
             let counts = Dictionary(ids.map { ($0, 1) }, uniquingKeysWith: +)
             for index in ids.indices where counts[ids[index]]! > 1 { ids[index] += suffix(payloads[index]) }
@@ -93,9 +97,23 @@ public enum StableKey {
             return ""
         }
         disambiguate { "#\(nativeID(of: $0))" }
-        return zip(payloads, ids).map { payload, id in
-            ArchivedItem(key: ItemKey(source: payload.source, id: id), nativeID: nativeID(of: payload), partition: partition(payload),
-                         stateSince: at, contentHash: contentHash(of: payload), payload: payload)
+        // AI message keys already end in the native id. A repeat with other text gains its content hash; the
+        // first keeps its key, and an exact repeat is left to collide.
+        var first: [String: String] = [:]
+        for index in ids.indices {
+            guard let kept = first[ids[index]] else { first[ids[index]] = hashes[index]; continue }
+            if kept != hashes[index] { ids[index] += "~\(hashes[index].prefix(16))" }
+        }
+        var taken = Set(ids)
+        for index in ids.indices {
+            guard case .aiMessage = payloads[index], !archived(ItemKey(source: payloads[index].source, id: ids[index])) else { continue }
+            let earlier = "\(ids[index])#\(nativeID(of: payloads[index]))"
+            if !taken.contains(earlier), archived(ItemKey(source: payloads[index].source, id: earlier)) { ids[index] = earlier; taken.insert(earlier) }
+        }
+        return payloads.indices.map { index in
+            let payload = payloads[index]
+            return ArchivedItem(key: ItemKey(source: payload.source, id: ids[index]), nativeID: nativeID(of: payload), partition: partition(payload),
+                                stateSince: at, contentHash: hashes[index], payload: payload)
         }
     }
 }

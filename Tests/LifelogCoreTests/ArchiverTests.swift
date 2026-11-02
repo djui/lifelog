@@ -228,6 +228,52 @@ final class ArchiverTests: XCTestCase {
         XCTAssertEqual(fresh.added, 3)
     }
 
+    func testRepeatedClaudeCodeLinesAreOneItem() async throws {
+        let root = try temporaryDirectory()
+        let projects = try temporaryDirectory()
+        let cursorFile = try temporaryDirectory().appendingPathComponent("cursors.json")
+        let folder = projects.appendingPathComponent("-Users-test-app")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func line(_ type: String, _ uuid: String, _ text: String, parent: String? = nil) -> String {
+            let parent = parent.map { #""\#($0)""# } ?? "null"
+            return #"{"type": "\#(type)", "uuid": "\#(uuid)", "parentUuid": \#(parent), "sessionId": "s-1", "timestamp": "2026-01-02T03:04:05Z", "message": {"role": "\#(type)", "content": "\#(text)"}}"# + "\n"
+        }
+        // A resumed session writes earlier lines again under their uuid, with another parent.
+        let history = line("user", "u1", "Fix the parser") + line("assistant", "a1", "Done.", parent: "u1")
+        try Data((history + line("user", "u1", "Fix the parser", parent: "a1") + line("assistant", "a1", "Done.", parent: "u1") + line("user", "u2", "Thanks", parent: "a1")).utf8)
+            .write(to: folder.appendingPathComponent("s-1.jsonl"))
+        // Forked sessions can repeat the parent's lines, under the parent's session id, in files of their own.
+        try Data(history.utf8).write(to: folder.appendingPathComponent("s-2.jsonl"))
+        try Data(history.utf8).write(to: folder.appendingPathComponent("s-3.jsonl"))
+        let reader = ClaudeCodeArchiveReader(root: projects, cursorFile: cursorFile)
+
+        let archiver = try archiver(root)
+        let first = try await archiver.run([reader], now: t0)
+        XCTAssertEqual(first.added, 3)
+        XCTAssertEqual(first.warnings, [])
+        XCTAssertEqual(Set(archiver.index.items.keys.map(\.id)), ["s-1/u1", "s-1/a1", "s-1/u2"], "keys stay as they were without repeats")
+
+        // The forks' cursors belong to the chat their lines name, so they are not read again from the start.
+        let second = try await self.archiver(root).run([reader], now: t0 + 600)
+        XCTAssertEqual(second.warnings, [])
+        XCTAssertEqual(second.lines.first?.counts, [:])
+    }
+
+    func testRepeatedAIMessageWithOtherTextGetsItsOwnKey() {
+        func payload(_ text: String) -> ArchivePayload {
+            .aiMessage(AIArchiveMessage(source: .claudecode, chatID: "s-1", chatTitle: "Fix", message: AIChatMessage(id: "u1", role: "user", timestamp: t0, text: text)))
+        }
+        let items = StableKey.items([payload("One"), payload("Two"), payload("One")], at: t0) { _ in Partition(date: "2026-09-21", utcOffset: 0) }
+        XCTAssertEqual(items[0].key.id, "s-1/u1#u1", "the first keeps the key it had before")
+        XCTAssertEqual(items[1].key.id, "s-1/u1#u1~\(items[1].contentHash.prefix(16))")
+        XCTAssertEqual(items[2].key.id, items[0].key.id, "an exact repeat still collides")
+
+        // Archives from before repeats were dropped hold some messages only under `<id>#<native id>`.
+        let archived: Set<ItemKey> = [ItemKey(source: .claudecode, id: "s-1/u1#u1")]
+        let again = StableKey.items([payload("One")], at: t0, archived: archived.contains) { _ in Partition(date: "2026-09-21", utcOffset: 0) }
+        XCTAssertEqual(again.map(\.key.id), ["s-1/u1#u1"], "a message keeps the key it was archived under")
+    }
+
     func testDemoAndRealArchivesDoNotMix() async throws {
         let root = try temporaryDirectory()
         for run in Demo.archiveRuns(now: t0) { _ = try await archiver(root).run(run.readers, now: run.at, demo: true) }

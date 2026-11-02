@@ -8,8 +8,11 @@ public struct ClaudeCodeCursor: Codable, Equatable {
     public var fileID: UInt64?
     /// Tool calls whose result has not been read yet, by tool-use id, so a later read can name the tool.
     public var pendingTools: [String: String]
-    public init(offset: UInt64 = 0, fileID: UInt64? = nil, pendingTools: [String: String] = [:]) {
-        self.offset = offset; self.fileID = fileID; self.pendingTools = pendingTools
+    /// The chat id the transcript's lines carry. A resumed or forked session's file can carry its parent's id
+    /// instead of its own file name; nil in cursors written before this was kept.
+    public var session: String?
+    public init(offset: UInt64 = 0, fileID: UInt64? = nil, pendingTools: [String: String] = [:], session: String? = nil) {
+        self.offset = offset; self.fileID = fileID; self.pendingTools = pendingTools; self.session = session
     }
 }
 
@@ -78,7 +81,7 @@ public enum ClaudeCodeReader {
         let data = try handle.readToEnd() ?? Data()
         // A line still being written has no newline yet; leave it for the next read.
         let end = data.lastIndex(of: 0x0A).map { $0 + 1 } ?? data.startIndex
-        var parser = Parser(pendingTools: state.pendingTools, session: (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: ""))
+        var parser = Parser(pendingTools: state.pendingTools, session: state.session ?? (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: ""))
         for line in data[data.startIndex..<end].split(separator: 0x0A) {
             guard let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else {
                 parser.warnings.append("\(path): the line at byte \(state.offset + UInt64(line.startIndex - data.startIndex)) is not JSON; skipped.")
@@ -88,6 +91,7 @@ public enum ClaudeCodeReader {
         }
         state.offset += UInt64(end - data.startIndex)
         state.pendingTools = parser.pendingTools
+        state.session = parser.session
         let project = parser.cwd ?? (path as NSString).deletingLastPathComponent
         let chat = AIChatRecord(id: parser.session, title: parser.title ?? "", created: parser.messages.first?.timestamp,
                                 updated: parser.messages.last?.timestamp, model: parser.model, project: project, messages: parser.messages)

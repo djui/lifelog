@@ -204,15 +204,26 @@ struct ClaudeCodeArchiveReader: ArchiveReader {
         var titles: [String: String] = [:]
         for item in request.previous.values { if case .aiMessage(let value) = item.payload { titles[value.chatID] = value.chatTitle } }
         // A cursor whose session is not in the archive (a new archive, a reset ledger) would skip its earlier lines.
-        cursors = cursors.filter { titles[(($0.key as NSString).lastPathComponent as NSString).deletingPathExtension] != nil }
+        cursors = cursors.filter { titles[$0.value.session ?? (($0.key as NSString).lastPathComponent as NSString).deletingPathExtension] != nil }
 
         let result = ClaudeCodeReader.read(root: root, cursors: cursors)
         var payloads: [ArchivePayload] = []
+        // Resumed and compacted sessions write a line again under its uuid, and a forked session's file can
+        // repeat its parent's lines under the parent's id. The same message twice is one item.
+        var seen: [String: String] = [:]
         for session in result.records {
             let chat = session.chat
             // An incremental read sees only new lines, so its first prompt is not the session's.
             let title = (session.restarted ? nil : titles[chat.id]) ?? chat.title
-            payloads += chat.messages.map { ArchivePayload.aiMessage(AIArchiveMessage(source: .claudecode, chatID: chat.id, chatTitle: title, project: chat.project, message: $0)) }
+            for message in chat.messages {
+                let payload = ArchivePayload.aiMessage(AIArchiveMessage(source: .claudecode, chatID: chat.id, chatTitle: title, project: chat.project, message: message))
+                if message.id != nil {
+                    let key = StableKey.id(of: payload), hash = StableKey.contentHash(of: payload)
+                    if seen[key] == hash { continue }
+                    seen[key] = seen[key] ?? hash
+                }
+                payloads.append(payload)
+            }
             cursors[session.path] = session.cursor
         }
         let commit: (() throws -> Void)? = cursorFile.map { file in {
