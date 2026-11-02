@@ -34,6 +34,8 @@ public enum Dedupe {
         return pairs.map { LedgerEvent(type: .rekeyed, at: at, run: run, key: $0.duplicate, reason: reason, newKey: $0.twin) }
     }
 
+    static func isDedupe(_ event: LedgerEvent) -> Bool { event.type == .rekeyed && event.reason == reason }
+
     /// Appends one `rekeyed` event per pair and returns the index with them applied, its cache saved.
     public static func retire(_ pairs: [Pair], ledger: Ledger, index: ArchiveIndex, now: Date, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot) throws -> ArchiveIndex {
         guard !pairs.isEmpty else { return index }

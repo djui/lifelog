@@ -70,7 +70,9 @@ final class DedupeTests: XCTestCase {
         XCTAssertEqual(retired.items[ItemKey(source: .claudecode, id: "s-1/u1")]?.firstSeen, t0, "the twin keeps the earlier first sighting")
         XCTAssertEqual(try ArchiveIndex.load(ledger, cacheRoot: nil), retired, "a refold from disk agrees")
         XCTAssertEqual(Dedupe.pairs(in: retired), [], "a second run finds nothing")
-        XCTAssertEqual(try Verifier.verify(root: root, cacheRoot: nil).problems, [])
+        let report = try Verifier.verify(root: root, cacheRoot: nil)
+        XCTAssertEqual(report.problems, [])
+        XCTAssertFalse(report.notes.contains { $0.contains("dedupe") }, "a dedupe run needs no run log line")
     }
 
     func testViewerHistoryMovesOntoTheTwin() throws {

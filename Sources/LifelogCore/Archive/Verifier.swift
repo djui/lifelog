@@ -53,7 +53,8 @@ public enum Verifier {
         report.problems += duplicates(runs)
         for line in runs where line.value.end < line.value.start { report.problems.append("\(line.location): run ends before it starts") }
         let logged = Set(runs.map(\.value.run))
-        let unlogged = Set(lines.map(\.value.run)).subtracting(logged)
+        // `dedupe` reads no source, so its events have no run line.
+        let unlogged = Set(lines.filter { !Dedupe.isDedupe($0.value) }.map(\.value.run)).subtracting(logged)
         if !unlogged.isEmpty {
             // The ledger is appended before the run log, so an interrupted run leaves events without a run line.
             report.notes.append("\(unlogged.count) run(s) in the ledger have no run log line, such as an interrupted run: \(unlogged.sorted().prefix(3).joined(separator: ", "))")
