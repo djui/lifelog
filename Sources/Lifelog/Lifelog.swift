@@ -26,6 +26,7 @@ struct Lifelog {
             case .archive: try await runArchive(config)
             case .rebuild: try runRebuild(config)
             case .verify: try runVerify(config)
+            case .dedupe: try runDedupe(config)
             case .open: try runOpen(config)
             }
         } catch {
@@ -179,6 +180,37 @@ struct Lifelog {
         for problem in report.problems { stderr("Problem: \(problem)") }
         print("Verified \(report.events) ledger events, \(report.runs) run log lines, \(report.items) items: \(report.problems.isEmpty ? "no problems" : "\(report.problems.count) problem\(report.problems.count == 1 ? "" : "s")").")
         if !report.problems.isEmpty { exit(1) }
+    }
+
+    /// Lists Claude Code duplicates, and with `--apply` retires them with `rekeyed` events and rebuilds the pages.
+    @MainActor
+    static func runDedupe(_ config: Config) throws {
+        let root = config.output.resolvingSymlinksInPath().standardizedFileURL
+        guard FileManager.default.fileExists(atPath: root.appendingPathComponent(Ledger.folderName).path) else {
+            throw ExportError.message("No archive in \(root.path) (\(Ledger.folderName)/ is missing).")
+        }
+        let lock = try ArchiveLock(root.appendingPathComponent(ArchiveLock.name), owner: "archive run")
+        defer { lock.release() }
+        try Ledger.checkFolder(root)
+        let ledger = Ledger(root: root, host: config.apply ? try HostID.current() : "dedupe")
+        let index = try ArchiveIndex.load(ledger)
+        for issue in index.issues { stderr("Warning: \(issue)") }
+        let pairs = Dedupe.pairs(in: index)
+        let differing = pairs.filter(\.textDiffers).count
+        let single = index.items.keys.filter { $0.source == .claudecode && $0.id.contains("#") }.count - pairs.count
+        for pair in pairs.prefix(5) { print("  \(pair.duplicate.id) → \(pair.twin.id)\(pair.textDiffers ? " (text differs)" : "")") }
+        if pairs.count > 5 { print("  …") }
+        print("\(pairs.count) Claude Code duplicate\(pairs.count == 1 ? "" : "s") of a plain key (\(differing) with other text); \(single) <uuid>#<uuid> item\(single == 1 ? "" : "s") without a plain twin stay.")
+        guard config.apply else {
+            if !pairs.isEmpty { print("Dry run: nothing written. Run again with --apply to retire them.") }
+            return
+        }
+        guard !pairs.isEmpty else { return }
+        let now = Date()
+        let updated = try Dedupe.retire(pairs, ledger: ledger, index: index, now: now)
+        let runLog = RunLog(root: root, host: ledger.host)
+        let summary = try Archiver.rebuild(ledger, runLog: runLog, index: updated, now: now, health: Health.warnings(runLog: runLog, now: now), viewer: config.viewer)
+        print("Retired \(pairs.count) duplicates; the archive holds \(updated.items.count) items. Pages: \(summary.written) written, \(summary.removed) removed.")
     }
 
     /// Opens `_viewer/index.html` in the default browser. The viewer is plain files, so nothing keeps running.
