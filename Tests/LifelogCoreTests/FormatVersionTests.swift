@@ -70,6 +70,22 @@ final class FormatVersionTests: XCTestCase {
         XCTAssertGreaterThan(summary.written, 0)
     }
 
+    func testRebuildWritesTheArchiveDatabase() throws {
+        let root = try archive(format: 1)
+        let ledger = Ledger(root: root, host: "mac1")
+        _ = try Archiver.rebuild(ledger, runLog: RunLog(root: root, host: "mac1"), index: try ArchiveIndex.load(ledger, cacheRoot: nil), now: t0, viewer: false)
+        let db = try SQLite(root.appendingPathComponent(ArchiveDatabase.fileName), readOnly: true)
+        func count(_ sql: String) throws -> Int64 { var value: Int64 = -1; try db.query(sql) { value = $0.int(0) }; return value }
+        XCTAssertEqual(try count("SELECT count(*) FROM items"), 14)
+        XCTAssertEqual(try count("SELECT count(*) FROM runs"), 13)
+        XCTAssertEqual(try count("SELECT count(*) FROM items WHERE state = 'expired'"), 2)
+        XCTAssertGreaterThan(try count("SELECT count(*) FROM items_fts WHERE items_fts MATCH 'patagonia'"), 0)
+        var page: String?
+        try db.query("SELECT page FROM items WHERE source = 'claude' LIMIT 1") { page = $0.text(0) }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(try XCTUnwrap(page)).path), "pages are relative to the archive folder")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasSuffix(".tmp") }, [])
+    }
+
     func testNewerLinesAreSetApartFromDamage() throws {
         let root = try archive(format: 1)
         let file = try ledgerFile(root, .notes)

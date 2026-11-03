@@ -186,6 +186,7 @@ Archive/
   Claude/…  ClaudeCode/…  Instagram/…  Messenger/…  # same as ChatGPT
   Facebook/2026/2026-10/posts 2026-10--<hash>.md   # one page per category and month
   _viewer/index.html                 # offline viewer, plus app.js, style.css and data/
+  _archive.sqlite                    # every item as one read-only SQLite database
   .archive/
     ledger/<source>/<YYYY-MM>.<host>.jsonl   # append-only source of truth
     runs/<YYYY-MM>.<host>.jsonl              # run log: one line per source per run
@@ -203,7 +204,15 @@ Every ledger and run log line carries a format version. When two Macs share an a
 
 After the update, the next run writes every page again. `verify` lists such lines as problems that say to update Lifelog.
 
-Caches live outside the synced folder, in `~/Library/Caches/com.djui.lifelog/<archive-hash>/`. They hold the folded index, the Claude Code read positions, the AI inbox digests and the notifications already sent. All of them can be deleted. The next run rebuilds the index from the ledger, and reads every Claude Code transcript again without adding duplicates.
+Caches live outside the synced folder, in `~/Library/Caches/com.djui.lifelog/<archive-hash>/`. They hold the folded index (`index.sqlite`), the Claude Code read positions, the AI inbox digests and the notifications already sent. The index remembers how far it has read each ledger file, so a run reads only the lines added since and saves only the items that changed. It reads the whole ledger again when a ledger file was changed or removed, when another Mac's lines arrive that are older than ones already read, or when the folder holds unexpected files. All of the caches can be deleted. The next run rebuilds the index from the ledger, and reads every Claude Code transcript again without adding duplicates.
+
+`_archive.sqlite` holds every item, with its state, dates, text and full record, plus the run log, for `sqlite3`, Datasette, DuckDB or an AI tool. The `items_fts` table is a full-text index of the text, for example:
+
+```bash
+sqlite3 "$HOME/Archive/_archive.sqlite" "SELECT day, source, who, text FROM items_fts JOIN items ON items.rowid = items_fts.rowid WHERE items_fts MATCH 'birthday' ORDER BY day"
+```
+
+Like the pages, it is regenerated from the ledger: Lifelog builds it in a local temporary folder and moves it into place, so it never syncs half-written. An `archive` run rewrites it at most once an hour, so it can be up to an hour behind the pages. `rebuild` always rewrites it. Treat it as read-only, because the next rewrite replaces any changes.
 
 ### States
 
@@ -247,7 +256,7 @@ A missing item plus a new item with the same container and the same text, seen i
 - **ChatGPT and Claude** (`chatgpt`, `claude`) are imported from the official account exports: in ChatGPT, Settings → Data controls → Export data; in Claude, Settings → Privacy → Export data. Leave the downloaded zip in the AI inbox: `~/Downloads` by default, or the folder you set with `--ai-inbox`. Each run looks at the zips directly in that folder, not in subfolders. Exports are recognized by their contents, not by their file name. Each zip is imported once, tracked by its SHA-256 digest in the run log, and left where it is. A complete export counts as a complete read of that service, so a chat missing from two newer exports becomes `deleted`. Exports are manual, so a chat created and deleted between two exports is never seen.
 - **Instagram** (`instagram`) is imported from the official export: in Accounts Center → Your information and permissions → Export your information → **Create export**, pick the Instagram profile, choose **Export to device** and set the format to **JSON** (an HTML export is refused with a warning). Meta emails you when it is ready. Leave the zip in the same inbox as the AI exports. Direct messages are imported from every message folder (inbox, requests and so on); one page per conversation, with each message under the sender's name. Photos, videos, voice messages, stickers and shared posts become placeholders. Meta's broken text encoding (`Ã©` for `é`) is repaired. Large accounts get their export in several zips; each part is imported on its own. Because no single zip is a complete read, Instagram imports only add: an unsent or deleted message stays `active` in the archive.
 - **Messenger** (`messenger`) is imported from the Facebook export the same way: the same **Create export**, with the Facebook profile, **Export to device** and format **JSON**. If you archive only Messenger, customizing the export down to *Messages* keeps the zip small; the `facebook` source below needs the rest. Everything said about Instagram above applies. Chats with end-to-end encryption, the default in Messenger since 2024, are not in this export; Lifelog does not read Messenger's separate secure storage download.
-- **Facebook** (`facebook`) is read from the same Facebook export as Messenger, so keep the export whole rather than customizing it down to *Messages*. Each zip is imported once for Messenger and once for Facebook, so turning on `facebook` later still imports zips Messenger already read, as long as they are still in the inbox. Lifelog reads your posts and check-ins, photos and videos, stories and reels, places you were tagged at, comments and reactions, group posts, comments and memberships, event responses, invitations and events you hosted, Marketplace listings, conversations and searches, saved items, pages you liked or followed, pokes, friends and friend requests, follows, and profile updates. Each category gets one page per month, such as `Facebook/2024/2024-05/posts 2024-05--….md`, with one heading per entry. Photos, videos and links become placeholders; the media are not copied. Ads, security, login and device logs, settings, payments and entries without a date (such as poll votes) are left out. Everything said about Instagram above applies.
+- **Facebook** (`facebook`) is read from the same Facebook export as Messenger, so keep the export whole rather than customizing it down to *Messages*. Each zip is imported once for Messenger and once for Facebook, so turning on `facebook` later still imports zips Messenger already read, as long as they are still in the inbox. Lifelog reads your posts and check-ins, photos and videos, stories and reels, places you were tagged at, comments and reactions, group posts, comments and memberships, event responses, invitations and events you hosted, Marketplace listings, conversations and searches, saved items, pages you liked or followed, pokes, friends and friend requests, follows, and profile updates. Each category gets one page per month, such as `Facebook/2024/2024-05/posts 2024-05--….md`, with one heading per entry. Lifelog 0.4 stores these as generic entries rather than chat messages. Your next Facebook import converts the entries archived before. Their pages stay the same and they aren't marked as edited. Photos, videos and links become placeholders; the media are not copied. Ads, security, login and device logs, settings, payments and entries without a date (such as poll votes) are left out. Everything said about Instagram above applies.
 - **Claude Code** (`claudecode`) reads the session transcripts in `~/.claude/projects/` incrementally, picking up only new lines on each run. User and assistant text is kept. Tool calls, tool results and reasoning become one-line placeholders, so work code and tool output stay out of the archive.
 
 ### The offline viewer
@@ -397,6 +406,8 @@ The archive keeps other people's WhatsApp messages after they expired or were de
 swift test
 ./scripts/build.sh
 ```
+
+To add an archive source, add an `ExportSource` case and describe it in `SourceSpec.swift`: its reader, its default schedule, its view, and whether it is imported from exports and only ever added to. Items that aren't notes, reminders, events or chat messages use the generic `entry` payload (`ArchiveEntry`), which the chat view already renders. Ledger lines carry a format version (`FormatVersion.swift`). A new payload kind, source or event type needs no version bump. Renaming or retyping a stored field does: raise `currentVersion` and add a `Tests/LifelogCoreTests/Fixtures/format-<n>` folder.
 
 CI runs tests on macOS and checks that the packaged executable can produce a demo export and a demo archive. Tests and the demo do not require access to your Apple or WhatsApp data.
 

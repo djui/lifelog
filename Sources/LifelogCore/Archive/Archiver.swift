@@ -86,6 +86,8 @@ public struct ArchiveSummary {
     public var pages = ExportSummary()
     /// Set when the pages could not be written. The ledger is already up to date; `rebuild` retries the pages.
     public var pageError: String?
+    /// Set when `_archive.sqlite` could not be written. The pages are fine; the next run tries again.
+    public var databaseError: String?
 
     public init() {}
 
@@ -222,6 +224,9 @@ public final class Archiver {
             do {
                 summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: fullWrite ? nil : before,
                                                        touched: fullWrite ? nil : touched, viewer: viewer ? Viewer(ledger: ledger) : nil)
+                if demo || (!touched.isEmpty || fullWrite) && ArchiveDatabase.due(ledger.root, now: Date()) {
+                    do { try ArchiveDatabase.write(context, to: ledger.root) } catch { summary.databaseError = error.localizedDescription }
+                }
             } catch { summary.pageError = error.localizedDescription }
         }
         if let pending {
@@ -275,6 +280,8 @@ public final class Archiver {
         let records = log.records
         let demo = records.contains { $0.mode == ReadMode.demo.rawValue }
         let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health)
-        return try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), viewer: viewer ? Viewer(ledger: ledger) : nil)
+        let summary = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), viewer: viewer ? Viewer(ledger: ledger) : nil)
+        try ArchiveDatabase.write(context, to: ledger.root)
+        return summary
     }
 }

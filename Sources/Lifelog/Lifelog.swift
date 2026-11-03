@@ -137,6 +137,7 @@ struct Lifelog {
         for line in summary.lines { for warning in line.warnings { stderr("Warning (\(line.source.rawValue)): \(warning)") } }
         print("Archive run complete: \(summary.added) added, \(summary.changed) changed, \(summary.tombstoned) tombstoned, \(summary.revoked) revoked, \(summary.pending) pending, \(summary.warnings.count) warnings.")
         print("Archive holds \(archiver.index.items.count) items. Pages: \(summary.pages.written) written, \(summary.pages.unchanged) unchanged, \(summary.pages.removed) removed. Output: \(root.path)")
+        if let databaseError = summary.databaseError { stderr("Warning: \(ArchiveDatabase.fileName) was not written: \(databaseError)") }
         if let pageError = summary.pageError { stderr("Archive pages were not written: \(pageError) The ledger is up to date; run rebuild after fixing this.") }
         if !summary.failures.isEmpty {
             for (source, message) in summary.failures.sorted(by: { $0.key.rawValue < $1.key.rawValue }) { stderr("Archive failed (\(source.rawValue)): \(message)") }
