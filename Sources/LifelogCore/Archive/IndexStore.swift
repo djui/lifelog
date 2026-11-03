@@ -98,6 +98,7 @@ struct IndexStore {
         index.lastAt = meta["lastAt"].flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
         index.changed = []
         guard !lines.isEmpty || !newer.isEmpty || !issues.isEmpty else { return index }
+        ExportLog.info("reading \(lines.count) new ledger lines into the index")
 
         let events = JSONLines.merged(lines).map(\.value)
         if let lastAt = index.lastAt, let first = events.first, first.at < lastAt { return nil }
@@ -112,6 +113,7 @@ struct IndexStore {
 
     /// Folds the whole ledger and replaces the cache with it.
     func refold(_ db: SQLite?) throws -> ArchiveIndex {
+        ExportLog.info("folding the whole ledger into the index")
         let contents = try ledger.read()
         var index = ArchiveIndex.fold(contents.events)
         index.issues = contents.issues + index.issues

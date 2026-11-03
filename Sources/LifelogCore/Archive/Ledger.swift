@@ -141,13 +141,43 @@ enum JSONLines {
         decoder.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()
             let value = try c.decode(String.self)
-            guard let date = timestamp.date(from: value) ?? ISO8601DateFormatter().date(from: value) else {
+            guard let date = fastTimestamp(value) ?? timestamp.date(from: value) ?? ISO8601DateFormatter().date(from: value) else {
                 throw DecodingError.dataCorruptedError(in: c, debugDescription: "Invalid date: \(value)")
             }
             return date
         }
         return decoder
     }()
+
+    /// `YYYY-MM-DDTHH:MM:SS.fffZ`, the form `timestamp` writes, parsed without a formatter: loading an archive parses
+    /// millions of these, and the formatter is many times slower. Anything else returns nil for the formatter to try.
+    static func fastTimestamp(_ text: String) -> Date? {
+        let utf8 = text.utf8
+        guard utf8.count == 24 else { return nil }
+        return utf8.withContiguousStorageIfAvailable { b -> Date? in
+            guard b[4] == 0x2D, b[7] == 0x2D, b[10] == 0x54, b[13] == 0x3A, b[16] == 0x3A, b[19] == 0x2E, b[23] == 0x5A else { return nil }
+            func number(_ from: Int, _ count: Int) -> Int? {
+                var value = 0
+                for index in from..<from + count {
+                    let digit = Int(b[index]) - 0x30
+                    guard (0...9).contains(digit) else { return nil }
+                    value = value * 10 + digit
+                }
+                return value
+            }
+            guard let year = number(0, 4), let month = number(5, 2), let day = number(8, 2), let hour = number(11, 2),
+                  let minute = number(14, 2), let second = number(17, 2), let millisecond = number(20, 3),
+                  (1...12).contains(month), (1...31).contains(day), hour < 24, minute < 60, second < 60 else { return nil }
+            // Days from civil (H. Hinnant), the inverse of `Partition.civil`.
+            let y = month <= 2 ? year - 1 : year
+            let era = (y >= 0 ? y : y - 399) / 400
+            let yoe = y - era * 400
+            let doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1
+            let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
+            let seconds = days * 86_400 + hour * 3600 + minute * 60 + second
+            return Date(timeIntervalSince1970: Double(seconds) + Double(millisecond) / 1000)
+        } ?? nil
+    }
 
     static let timestamp: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

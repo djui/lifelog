@@ -206,13 +206,13 @@ After the update, the next run writes every page again. `verify` lists such line
 
 Caches live outside the synced folder, in `~/Library/Caches/com.djui.lifelog/<archive-hash>/`. They hold the folded index (`index.sqlite`), the Claude Code read positions, the AI inbox digests and the notifications already sent. The index remembers how far it has read each ledger file, so a run reads only the lines added since and saves only the items that changed. It reads the whole ledger again when a ledger file was changed or removed, when another Mac's lines arrive that are older than ones already read, or when the folder holds unexpected files. All of the caches can be deleted. The next run rebuilds the index from the ledger, and reads every Claude Code transcript again without adding duplicates.
 
-`_archive.sqlite` holds every item, with its state, dates, text and full record, plus the run log, for `sqlite3`, Datasette, DuckDB or an AI tool. The `items_fts` table is a full-text index of the text, for example:
+`_archive.sqlite` holds every item, with its state, dates, text and page, plus the run log, for `sqlite3`, Datasette, DuckDB or an AI tool. The `items_fts` table is a full-text index of the text, for example:
 
 ```bash
 sqlite3 "$HOME/Archive/_archive.sqlite" "SELECT day, source, who, text FROM items_fts JOIN items ON items.rowid = items_fts.rowid WHERE items_fts MATCH 'birthday' ORDER BY day"
 ```
 
-Like the pages, it is regenerated from the ledger: Lifelog builds it in a local temporary folder and moves it into place, so it never syncs half-written. An `archive` run rewrites it at most once an hour, so it can be up to an hour behind the pages. `rebuild` always rewrites it. Treat it as read-only, because the next rewrite replaces any changes.
+Like the pages, it is regenerated from the ledger: Lifelog builds it in a local temporary folder and moves it into place, so it never syncs half-written. It can reach a few hundred megabytes, and each rewrite syncs in full. An `archive` run therefore rewrites it at most once a day, so it can be up to a day behind the pages. `rebuild` always rewrites it. Treat it as read-only, because the next rewrite replaces any changes.
 
 ### States
 

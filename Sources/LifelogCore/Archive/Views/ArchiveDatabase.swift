@@ -4,13 +4,14 @@ import Foundation
 /// Like the pages, it is a view of the ledger and can be deleted; `rebuild` writes it again.
 ///
 /// It is built whole in a local temporary folder and then moved into place with a rename, so a sync client never sees
-/// it half written. It is never opened for writing inside the archive folder. An `archive` run rewrites it at most once
-/// an hour, so it can be up to an hour behind the pages; `rebuild` always rewrites it.
+/// it half written. It is never opened for writing inside the archive folder. It is large (hundreds of megabytes for a big
+/// archive) and every rewrite syncs in full, so an `archive` run rewrites it at most once a day; `rebuild` always does.
+/// The full records stay in the ledger; this holds what a query needs.
 public enum ArchiveDatabase {
     public static let fileName = "_archive.sqlite"
-    static let interval: TimeInterval = 3600
+    static let interval: TimeInterval = 86_400
 
-    /// Missing, or older than an hour.
+    /// Missing, or older than a day.
     static func due(_ root: URL, now: Date = Date()) -> Bool {
         guard let modified = (try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(fileName).path))?[.modificationDate] as? Date else { return true }
         return now.timeIntervalSince(modified) >= interval
@@ -52,7 +53,6 @@ public enum ArchiveDatabase {
                 badges TEXT NOT NULL,          -- JSON list, such as ["edited"]
                 page TEXT NOT NULL,            -- the Markdown page that shows it, relative to the archive folder
                 first_seen TEXT, last_seen TEXT, state_since TEXT, reason TEXT,
-                payload TEXT NOT NULL,         -- the full record as JSON, as in the ledger
                 PRIMARY KEY (source, id)
             );
             CREATE INDEX items_day ON items (day);
@@ -66,8 +66,8 @@ public enum ArchiveDatabase {
         func text(_ value: String?) -> SQLite.Value { value.map { .text($0) } ?? .null }
         try db.transaction {
             let insert = try db.prepare("""
-                INSERT INTO items (source, id, day, time, state, title, who, "group", text, badges, page, first_seen, last_seen, state_since, reason, payload)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO items (source, id, day, time, state, title, who, "group", text, badges, page, first_seen, last_seen, state_since, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """)
             for item in context.index.items.values.sorted(by: { $0.key < $1.key }) {
                 let view = ViewerData.item(item, context, history: [])
@@ -76,7 +76,7 @@ public enum ArchiveDatabase {
                                 text(view.title), text(view.who), text(view.group), .text(view.text), .text(try json(view.badges)),
                                 .text(home.path + (home.anchor.map { "#\($0)" } ?? "")),
                                 text(item.firstSeen.map(context.iso)), text(context.lastSeen(item).map(context.iso)), .text(context.iso(item.stateSince)),
-                                text(item.reason), .text(try json(item.payload))])
+                                text(item.reason)])
             }
             try db.execute("INSERT INTO items_fts (items_fts) VALUES ('rebuild')")
             let run = try db.prepare("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")

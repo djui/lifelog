@@ -280,4 +280,18 @@ final class ConfigTests: XCTestCase {
             XCTAssertTrue(Config.help.contains(word), word)
         }
     }
+
+    /// The fast parser must give exactly the formatter's dates, or a page rendered from a fresh fold would differ.
+    func testFastTimestampsMatchTheFormatter() {
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<20_000 {
+            let date = Date(timeIntervalSince1970: Double(Int64.random(in: -2_000_000_000_000...4_000_000_000_000, using: &generator)) / 1000)
+            let text = JSONLines.timestamp.string(from: date)
+            XCTAssertEqual(JSONLines.fastTimestamp(text), JSONLines.timestamp.date(from: text), text)
+            XCTAssertEqual(JSONLines.fastTimestamp(text).map(JSONLines.timestamp.string), text)
+        }
+        for text in ["2026-11-04T10:00:00Z", "2026-11-04T10:00:00.000+01:00", "2026-13-04T10:00:00.000Z", "2026-11-04 10:00:00.000Z"] {
+            XCTAssertNil(JSONLines.fastTimestamp(text), text)
+        }
+    }
 }
