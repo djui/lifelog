@@ -90,7 +90,7 @@ final class VerifierTests: XCTestCase {
         let report = try Verifier.verify(root: root, cacheRoot: nil)
         XCTAssertEqual(report.problems.count, 4, "\(report.problems)")
         XCTAssertEqual(report.problems.filter { $0.hasPrefix("does not fold:") }.count, 2)
-        XCTAssertTrue(report.problems.contains { $0.contains("unknown event version 2") })
+        XCTAssertTrue(report.problems.contains { $0.contains("newer version of Lifelog") && $0.hasSuffix(": format 2") })
         XCTAssertTrue(report.problems.contains { $0.contains("whatsapp event in the notes folder") })
     }
 

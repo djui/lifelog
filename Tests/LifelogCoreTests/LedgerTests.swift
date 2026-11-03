@@ -113,7 +113,9 @@ final class LedgerTests: XCTestCase {
 
         let contents = try ledger.read()
         XCTAssertEqual(contents.events.map(\.key.id), ["n1"])
-        XCTAssertEqual(contents.issues.count, 3)
+        XCTAssertEqual(contents.issues.count, 2)
+        // A source folder this version does not know is a newer Lifelog's, not damage.
+        XCTAssertEqual(contents.newer.sources, ["myspace"])
     }
 
     func testTwoHostsInterleaveInTimestampOrder() throws {

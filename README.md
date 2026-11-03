@@ -194,6 +194,15 @@ Archive/
 
 The ledger is the source of truth. Everything else is a view of it and can be regenerated with `rebuild`. Ledger files are plain JSON lines, partitioned by the month they were written. Each Mac writes only files carrying its own host id, so two Macs never write the same file. Don't edit pages by hand: like `export`, the archive refuses to overwrite a page that was changed outside it.
 
+Every ledger and run log line carries a format version. When two Macs share an archive and one runs a newer Lifelog, the older one may find lines it can't fully read, such as a newer format or a source it doesn't know. It never treats those lines as damage and never changes them. Until you update Lifelog on that Mac, it does this:
+
+- It doesn't read a source that has such lines. The source shows as failed, with the reason.
+- It keeps archiving every other source.
+- It writes no pages, so a partial view never replaces a complete one.
+- It refuses `rebuild` and `dedupe --apply`.
+
+After the update, the next run writes every page again. `verify` lists such lines as problems that say to update Lifelog.
+
 Caches live outside the synced folder, in `~/Library/Caches/com.djui.lifelog/<archive-hash>/`. They hold the folded index, the Claude Code read positions, the AI inbox digests and the notifications already sent. All of them can be deleted. The next run rebuilds the index from the ledger, and reads every Claude Code transcript again without adding duplicates.
 
 ### States

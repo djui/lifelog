@@ -5,6 +5,9 @@ public struct ArchiveIndex: Equatable {
     public var items: [ItemKey: ArchivedItem] = [:]
     /// Ledger read problems plus events that could not be applied.
     public var issues: [String] = []
+    /// Ledger lines a newer Lifelog wrote, left out of `items`. While any exist, the fold is incomplete:
+    /// those sources are not read and no pages are written (see `Versioned`).
+    public var newer = NewerLines()
 
     public init() {}
 
@@ -72,11 +75,13 @@ public struct ArchiveIndex: Equatable {
             var index = ArchiveIndex()
             index.items = Dictionary(uniqueKeysWithValues: cache.items.map { ($0.key, $0) })
             index.issues = cache.issues
+            index.newer = cache.newer
             return index
         }
         let contents = try ledger.read()
         var index = fold(contents.events)
         index.issues = contents.issues + index.issues
+        index.newer = contents.newer
         if let cacheRoot { index.save(ledger, cacheRoot: cacheRoot, stamps: stamps) }
         return index
     }
@@ -90,7 +95,7 @@ public struct ArchiveIndex: Equatable {
 
     func save(_ ledger: Ledger, cacheRoot: URL, stamps: [String: FileStamp]) {
         let cacheURL = Self.cacheFile(for: ledger, in: cacheRoot)
-        let cache = Cache(archive: ledger.root.path, files: stamps, items: items.values.sorted { $0.key < $1.key }, issues: issues)
+        let cache = Cache(archive: ledger.root.path, files: stamps, items: items.values.sorted { $0.key < $1.key }, issues: issues, newer: newer)
         do {
             try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONLines.encoder.encode(cache).write(to: cacheURL, options: .atomic)
@@ -111,11 +116,12 @@ public struct ArchiveIndex: Equatable {
     }
 
     struct Cache: Codable {
-        static let currentVersion = 2
+        static let currentVersion = 3
         var version = currentVersion
         var archive: String
         var files: [String: FileStamp]
         var items: [ArchivedItem]
         var issues: [String]
+        var newer: NewerLines
     }
 }

@@ -80,6 +80,9 @@ extension ArchivePayload: Equatable {
 extension ArchivePayload: Codable {
     enum CodingKeys: String, CodingKey { case kind, note, reminder, event, message, aiMessage }
 
+    /// Every `kind` this version reads. Any other kind was written by a newer Lifelog (see `Versioned`).
+    static let kinds: Set<String> = ["note", "reminder", "event", "message", "aiMessage"]
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .kind) {

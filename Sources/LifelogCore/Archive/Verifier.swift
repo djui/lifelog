@@ -12,6 +12,9 @@ public struct VerifyReport: Equatable {
 
 /// Read-only consistency check of an archive folder: ledger and run log lines, the fold, and the index cache.
 public enum Verifier {
+    /// Prefix of problems that updating Lifelog on this Mac fixes.
+    static let newer = "written by a newer version of Lifelog, update Lifelog on this Mac: "
+
     public static func verify(root: URL, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot) throws -> VerifyReport {
         var report = VerifyReport()
         // Appends never happen here, so the host name is only a placeholder.
@@ -23,12 +26,15 @@ public enum Verifier {
 
         var lines: [JSONLines.Line<LedgerEvent>] = []
         for name in try FileManager.default.contentsOfDirectory(atPath: ledger.directory.path).sorted() where !name.hasPrefix(".") {
-            guard let source = ArchiveSource(rawValue: name) else { report.problems.append("ledger/\(name): unknown source folder"); continue }
+            guard let source = ArchiveSource(rawValue: name) else {
+                report.problems.append(Ledger.newerSource(name) ? "ledger/\(name): \(newer)source \(name)" : "ledger/\(name): unknown source folder")
+                continue
+            }
             let result = try JSONLines.read(LedgerEvent.self, in: ledger.directory.appendingPathComponent(name), label: "ledger/\(name)")
-            report.problems += result.issues
+            report.problems += result.issues + result.newer.map { "\(newer)\($0)" }
             for line in result.lines {
                 if line.value.key.source != source { report.problems.append("\(line.location): \(line.value.key.source.rawValue) event in the \(name) folder") }
-                if line.value.v != 1 { report.problems.append("\(line.location): unknown event version \(line.value.v)") }
+                if line.value.v < 1 { report.problems.append("\(line.location): invalid event version \(line.value.v)") }
                 if line.value.key.id.isEmpty { report.problems.append("\(line.location): empty key") }
             }
             lines += result.lines.filter { $0.value.key.source == source }
@@ -46,7 +52,7 @@ public enum Verifier {
         var runs: [JSONLines.Line<RunRecord>] = []
         if FileManager.default.fileExists(atPath: runLog.directory.path) {
             let result = try JSONLines.read(RunRecord.self, in: runLog.directory, label: "runs")
-            report.problems += result.issues
+            report.problems += result.issues + result.newer.map { "\(newer)\($0)" }
             runs = result.lines
         }
         report.runs = runs.count

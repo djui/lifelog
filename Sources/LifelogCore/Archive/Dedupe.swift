@@ -39,6 +39,8 @@ public enum Dedupe {
     /// Appends one `rekeyed` event per pair and returns the index with them applied, its cache saved.
     public static func retire(_ pairs: [Pair], ledger: Ledger, index: ArchiveIndex, now: Date, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot) throws -> ArchiveIndex {
         guard !pairs.isEmpty else { return index }
+        // The pages are rebuilt next, which needs the whole ledger.
+        try index.newer.require()
         let events = try JSONLines.stored(events(pairs, at: now, host: ledger.host))
         try ledger.append(events)
         var index = index

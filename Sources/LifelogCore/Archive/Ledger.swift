@@ -18,7 +18,7 @@ public struct LedgerEvent: Codable, Equatable {
     public var newKey: ItemKey?
 
     public init(type: LedgerEventType, at: Date, run: String, key: ItemKey, item: ArchivedItem? = nil, state: LifecycleState? = nil, reason: String? = nil, newKey: ItemKey? = nil) {
-        v = 1; self.type = type; self.at = at; self.run = run; self.key = key
+        v = Self.currentVersion; self.type = type; self.at = at; self.run = run; self.key = key
         self.item = item; self.state = state; self.reason = reason; self.newKey = newKey
     }
 }
@@ -28,6 +28,8 @@ public struct LedgerContents {
     public var events: [LedgerEvent] = []
     /// Torn last lines, unreadable lines and unexpected files. Reading never fails on these.
     public var issues: [String] = []
+    /// Lines and source folders a newer Lifelog wrote. They are not in `events`.
+    public var newer = NewerLines()
 }
 
 /// Append-only JSONL month files under `.archive/ledger/<source>/<YYYY-MM>.<host>.jsonl`.
@@ -70,10 +72,17 @@ public struct Ledger {
         let manager = FileManager.default
         guard manager.fileExists(atPath: directory.path) else { return contents }
         for name in try manager.contentsOfDirectory(atPath: directory.path).sorted() where !name.hasPrefix(".") {
-            guard let source = ArchiveSource(rawValue: name) else { contents.issues.append("ledger/\(name): unknown source, ignored"); continue }
+            guard let source = ArchiveSource(rawValue: name) else {
+                // A source folder named like ours belongs to a newer Lifelog; anything else is not ours.
+                if Self.newerSource(name) { contents.newer.lines.append("ledger/\(name): source \(name)"); contents.newer.sources.insert(name) }
+                else { contents.issues.append("ledger/\(name): unknown folder, ignored") }
+                continue
+            }
             if let sources, !sources.contains(source) { continue }
             let result = try JSONLines.read(LedgerEvent.self, in: directory.appendingPathComponent(name), label: "ledger/\(name)")
             contents.issues += result.issues
+            contents.newer.lines += result.newer
+            if !result.newer.isEmpty { contents.newer.sources.insert(name) }
             for line in result.lines {
                 guard line.value.key.source == source else { contents.issues.append("\(line.location): event for \(line.value.key.source.rawValue) in \(name), ignored"); continue }
                 lines.append(line)
@@ -81,6 +90,11 @@ public struct Ledger {
         }
         contents.events = JSONLines.merged(lines).map(\.value)
         return contents
+    }
+
+    /// Source folders are lowercase ASCII letters and digits, such as `claudecode`.
+    static func newerSource(_ name: String) -> Bool {
+        !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber) }
     }
 
     /// Ledger files with size and modification time, for cache validation.
@@ -207,9 +221,11 @@ enum JSONLines {
 
     /// Reads every host's month files in `folder`. An unterminated last line is torn and ignored,
     /// but a file with no complete line fails the read rather than reading as empty.
-    static func read<Value: Decodable & Timestamped>(_ type: Value.Type, in folder: URL, label: String) throws -> (lines: [Line<Value>], issues: [String]) {
+    /// Lines a newer Lifelog wrote (see `Versioned`) are left out and listed in `newer`, apart from damaged lines in `issues`.
+    static func read<Value: Decodable & Timestamped & Versioned>(_ type: Value.Type, in folder: URL, label: String) throws -> (lines: [Line<Value>], issues: [String], newer: [String]) {
         var lines: [Line<Value>] = []
         var issues: [String] = []
+        var newer: [String] = []
         for name in try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() where !name.hasPrefix(".") {
             guard let (_, host) = parse(name) else { issues.append("\(label)/\(name): unexpected file, ignored"); continue }
             let file = "\(label)/\(name)"
@@ -218,15 +234,20 @@ enum JSONLines {
             let rows = data.split(separator: 0x0A, omittingEmptySubsequences: false)
             for (index, row) in rows.enumerated() where !row.isEmpty {
                 guard index < rows.count - 1 else { issues.append("\(file): ignored torn last line"); continue }
-                do {
-                    let value = try decoder.decode(Value.self, from: Data(row))
-                    lines.append(Line(value: value, at: value.at, host: host, file: file, index: index, location: "\(file):\(index + 1)"))
-                } catch {
-                    issues.append("\(file):\(index + 1): unreadable line, ignored")
+                let location = "\(file):\(index + 1)"
+                let data = Data(row)
+                // Probing only lines that fail to decode keeps the common path at one decode per line.
+                if let value = try? decoder.decode(Value.self, from: data) {
+                    if value.v > Value.currentVersion { newer.append("\(location): format \(value.v)"); continue }
+                    lines.append(Line(value: value, at: value.at, host: host, file: file, index: index, location: location))
+                } else if let reason = Value.newer(data) {
+                    newer.append("\(location): \(reason)")
+                } else {
+                    issues.append("\(location): unreadable line, ignored")
                 }
             }
         }
-        return (lines, issues)
+        return (lines, issues, newer)
     }
 
     /// Timestamp order; ties keep host, then file and line order, so every Mac folds the same sequence.
