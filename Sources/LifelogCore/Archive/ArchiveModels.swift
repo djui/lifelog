@@ -55,8 +55,29 @@ public struct AIArchiveMessage: Codable {
     }
 }
 
+/// One dated entry of a source without a richer model of its own, such as a Facebook post, comment or reaction.
+/// Entries are grouped into containers, one page each, such as `posts/2021-05` titled `Posts 2021-05`.
+/// A new source whose items are neither notes, reminders, events nor chat messages uses entries.
+public struct ArchiveEntry: Codable, Equatable {
+    public var source: ArchiveSource
+    public var container, containerTitle: String
+    /// Unique within the container and stable across reads.
+    public var id: String
+    public var timestamp: Date
+    /// What kind of entry it is, shown as its heading, such as `Post` or `Comment`.
+    public var label: String
+    public var text: String
+    /// Placeholders for photos, videos and links.
+    public var attachments: [String]
+
+    public init(source: ArchiveSource, container: String, containerTitle: String, id: String, timestamp: Date, label: String, text: String, attachments: [String] = []) {
+        self.source = source; self.container = container; self.containerTitle = containerTitle; self.id = id
+        self.timestamp = timestamp; self.label = label; self.text = text; self.attachments = attachments
+    }
+}
+
 public enum ArchivePayload {
-    case note(NoteRecord), reminder(ReminderRecord), event(CalendarRecord), message(WhatsAppArchiveMessage), aiMessage(AIArchiveMessage)
+    case note(NoteRecord), reminder(ReminderRecord), event(CalendarRecord), message(WhatsAppArchiveMessage), aiMessage(AIArchiveMessage), entry(ArchiveEntry)
 
     public var source: ArchiveSource {
         switch self {
@@ -65,6 +86,19 @@ public enum ArchivePayload {
         case .event: return .calendar
         case .message: return .whatsapp
         case .aiMessage(let value): return value.source
+        case .entry(let value): return value.source
+        }
+    }
+
+    /// The `kind` it is written with.
+    public var kind: String {
+        switch self {
+        case .note: return "note"
+        case .reminder: return "reminder"
+        case .event: return "event"
+        case .message: return "message"
+        case .aiMessage: return "aiMessage"
+        case .entry: return "entry"
         }
     }
 }
@@ -78,7 +112,10 @@ extension ArchivePayload: Equatable {
 
 // Written as {"kind": "note", "note": {...}} so the ledger stays readable without this code.
 extension ArchivePayload: Codable {
-    enum CodingKeys: String, CodingKey { case kind, note, reminder, event, message, aiMessage }
+    enum CodingKeys: String, CodingKey { case kind, note, reminder, event, message, aiMessage, entry }
+
+    /// Every `kind` this version reads. Any other kind was written by a newer Lifelog (see `Versioned`).
+    static let kinds: Set<String> = ["note", "reminder", "event", "message", "aiMessage", "entry"]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -88,6 +125,7 @@ extension ArchivePayload: Codable {
         case "event": self = .event(try c.decode(CalendarRecord.self, forKey: .event))
         case "message": self = .message(try c.decode(WhatsAppArchiveMessage.self, forKey: .message))
         case "aiMessage": self = .aiMessage(try c.decode(AIArchiveMessage.self, forKey: .aiMessage))
+        case "entry": self = .entry(try c.decode(ArchiveEntry.self, forKey: .entry))
         case let kind: throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: "Unknown payload kind: \(kind)")
         }
     }
@@ -100,6 +138,33 @@ extension ArchivePayload: Codable {
         case .event(let value): try c.encode("event", forKey: .kind); try c.encode(value, forKey: .event)
         case .message(let value): try c.encode("message", forKey: .kind); try c.encode(value, forKey: .message)
         case .aiMessage(let value): try c.encode("aiMessage", forKey: .kind); try c.encode(value, forKey: .aiMessage)
+        case .entry(let value): try c.encode("entry", forKey: .kind); try c.encode(value, forKey: .entry)
+        }
+    }
+}
+
+/// How a chat message or an entry shows on a thread page (`AIChatView`): one heading and text per item.
+struct ThreadLine {
+    var chatID, chatTitle: String
+    var project: String?
+    /// The role or sender of a message, or the label of an entry.
+    var heading: String
+    var model: String?
+    var timestamp: Date?
+    var text: String
+    var attachments: [String]
+}
+
+extension ArchivePayload {
+    /// Nil for items that do not show on thread pages.
+    var thread: ThreadLine? {
+        switch self {
+        case .aiMessage(let value):
+            return ThreadLine(chatID: value.chatID, chatTitle: value.chatTitle, project: value.project, heading: value.message.role, model: value.message.model,
+                              timestamp: value.message.timestamp, text: value.message.text, attachments: value.message.attachments)
+        case .entry(let value):
+            return ThreadLine(chatID: value.container, chatTitle: value.containerTitle, heading: value.label, timestamp: value.timestamp, text: value.text, attachments: value.attachments)
+        default: return nil
         }
     }
 }

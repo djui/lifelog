@@ -12,6 +12,9 @@ public struct VerifyReport: Equatable {
 
 /// Read-only consistency check of an archive folder: ledger and run log lines, the fold, and the index cache.
 public enum Verifier {
+    /// Prefix of problems that updating Lifelog on this Mac fixes.
+    static let newer = "written by a newer version of Lifelog, update Lifelog on this Mac: "
+
     public static func verify(root: URL, cacheRoot: URL? = ArchiveIndex.defaultCacheRoot) throws -> VerifyReport {
         var report = VerifyReport()
         // Appends never happen here, so the host name is only a placeholder.
@@ -23,12 +26,15 @@ public enum Verifier {
 
         var lines: [JSONLines.Line<LedgerEvent>] = []
         for name in try FileManager.default.contentsOfDirectory(atPath: ledger.directory.path).sorted() where !name.hasPrefix(".") {
-            guard let source = ArchiveSource(rawValue: name) else { report.problems.append("ledger/\(name): unknown source folder"); continue }
+            guard let source = ArchiveSource(rawValue: name) else {
+                report.problems.append(Ledger.newerSource(name) ? "ledger/\(name): \(newer)source \(name)" : "ledger/\(name): unknown source folder")
+                continue
+            }
             let result = try JSONLines.read(LedgerEvent.self, in: ledger.directory.appendingPathComponent(name), label: "ledger/\(name)")
-            report.problems += result.issues
+            report.problems += result.issues + result.newer.map { "\(newer)\($0)" }
             for line in result.lines {
                 if line.value.key.source != source { report.problems.append("\(line.location): \(line.value.key.source.rawValue) event in the \(name) folder") }
-                if line.value.v != 1 { report.problems.append("\(line.location): unknown event version \(line.value.v)") }
+                if line.value.v < 1 { report.problems.append("\(line.location): invalid event version \(line.value.v)") }
                 if line.value.key.id.isEmpty { report.problems.append("\(line.location): empty key") }
             }
             lines += result.lines.filter { $0.value.key.source == source }
@@ -46,7 +52,7 @@ public enum Verifier {
         var runs: [JSONLines.Line<RunRecord>] = []
         if FileManager.default.fileExists(atPath: runLog.directory.path) {
             let result = try JSONLines.read(RunRecord.self, in: runLog.directory, label: "runs")
-            report.problems += result.issues
+            report.problems += result.issues + result.newer.map { "\(newer)\($0)" }
             runs = result.lines
         }
         report.runs = runs.count
@@ -95,23 +101,22 @@ public enum Verifier {
         }
     }
 
-    /// The cache is trusted while the ledger files match its stamps, so it must then equal a fresh fold.
+    /// The cache is trusted while it has read every ledger file to its end, so it must then equal a fresh fold.
     static func checkCache(_ ledger: Ledger, index: ArchiveIndex, cacheRoot: URL, report: inout VerifyReport) {
-        let url = ArchiveIndex.cacheFile(for: ledger, in: cacheRoot)
-        guard let data = try? Data(contentsOf: url) else { return }
-        guard let cache = try? JSONLines.decoder.decode(ArchiveIndex.Cache.self, from: data), cache.version == ArchiveIndex.Cache.currentVersion else {
-            report.notes.append("The index cache \(url.path) is unreadable or outdated; the next run refolds the ledger.")
+        let store = IndexStore(ledger: ledger, cacheRoot: cacheRoot)
+        guard FileManager.default.fileExists(atPath: store.url.path) else { return }
+        guard let snapshot = store.snapshot() else {
+            report.notes.append("The index cache \(store.url.path) is unreadable or outdated; the next run folds the ledger again.")
             return
         }
-        guard cache.archive == ledger.root.path, cache.files == ledger.stamps() else {
-            report.notes.append("The index cache is older than the ledger; the next run refolds it.")
+        guard snapshot.upToDate else {
+            report.notes.append("The index cache is older than the ledger; the next run catches up.")
             return
         }
-        let cached = Dictionary(cache.items.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        let differing = Set(cached.keys).union(index.items.keys).filter { cached[$0] != index.items[$0] }.sorted()
-        if cache.items.count != cached.count || !differing.isEmpty {
+        let differing = Set(snapshot.items.keys).union(index.items.keys).filter { snapshot.items[$0] != index.items[$0] }.sorted()
+        if !differing.isEmpty {
             let examples = differing.prefix(3).map { "\($0.source.rawValue)/\($0.id)" }.joined(separator: ", ")
-            report.problems.append("The index cache disagrees with the ledger for \(differing.count) item(s) (\(examples)). Delete \(url.path) so the next run refolds.")
+            report.problems.append("The index cache disagrees with the ledger for \(differing.count) item(s) (\(examples)). Delete \(store.url.path) so the next run folds again.")
         }
     }
 }

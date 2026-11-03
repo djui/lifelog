@@ -3,15 +3,13 @@ import Foundation
 /// One page per ChatGPT, Claude, Claude Code, Instagram or Messenger conversation, or per Facebook category and month: `<Service>/YYYY/YYYY-MM/<title>--<id-hash>.md`, by the month
 /// of its first message. Messages are the archived items, so a chat grows and its states show per message.
 enum AIChatView {
-    static let sources: [ArchiveSource] = [.chatgpt, .claude, .claudecode, .instagram, .messenger, .facebook]
+    static let sources = ArchiveSource.archiveOrder.filter { $0.spec.view == .chats }
 
-    static func message(_ item: ArchivedItem) -> AIArchiveMessage? {
-        if case .aiMessage(let value) = item.payload { return value }
-        return nil
-    }
+    /// Chat messages and entries alike (see `ThreadLine`).
+    static func message(_ item: ArchivedItem) -> ThreadLine? { item.payload.thread }
 
     static func ordered(_ items: [ArchivedItem]) -> [ArchivedItem] {
-        func time(_ item: ArchivedItem) -> Date { message(item)?.message.timestamp ?? item.firstSeen ?? item.stateSince }
+        func time(_ item: ArchivedItem) -> Date { message(item)?.timestamp ?? item.firstSeen ?? item.stateSince }
         return items.sorted { (time($0), $0.key.id) < (time($1), $1.key.id) }
     }
 
@@ -49,9 +47,9 @@ enum AIChatView {
         if let project = latest.project { lines.append("project: \(yaml(project))") }
         lines += ["messages: \(items.count)", "---", "", "# \(MarkdownWriter.line(latest.chatTitle))", ""]
         for item in items {
-            let value = message(item)!.message
+            let value = message(item)!
             var heading = value.timestamp.map { "\(item.partition.day($0)) \(item.partition.clock($0)) · " } ?? ""
-            heading += MarkdownWriter.line(value.role)
+            heading += MarkdownWriter.line(value.heading)
             if let model = value.model { heading += " (\(MarkdownWriter.line(model)))" }
             let text = ArchivePages.struck(item) ? "~~\(value.text)~~" : value.text
             lines += ["## \(heading)\(ArchivePages.suffix(ArchivePages.badges(item, context)))", "", text, ""]
@@ -68,6 +66,6 @@ enum AIChatView {
 
     static func summary(_ item: ArchivedItem) -> String {
         let value = message(item)!
-        return "\(ArchivePages.shorten(value.chatTitle, 60)), \(MarkdownWriter.line(value.message.role)): \(ArchivePages.shorten(value.message.text))"
+        return "\(ArchivePages.shorten(value.chatTitle, 60)), \(MarkdownWriter.line(value.heading)): \(ArchivePages.shorten(value.text))"
     }
 }

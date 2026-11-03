@@ -20,7 +20,7 @@ public struct RunRecord: Codable, Equatable {
 
     public init(run: String, source: ArchiveSource, start: Date, end: Date, complete: Bool, scope: String, counts: [String: Int] = [:], warnings: [String] = [],
                 mode: String? = nil, digest: String? = nil, timeZone: String? = nil) {
-        v = 1; self.run = run; self.source = source; self.start = start; self.end = end
+        v = Self.currentVersion; self.run = run; self.source = source; self.start = start; self.end = end
         self.complete = complete; self.scope = scope; self.counts = counts; self.warnings = warnings
         self.mode = mode; self.digest = digest; self.timeZone = timeZone
     }
@@ -47,10 +47,13 @@ public struct RunLog {
         }
     }
 
-    public func read() throws -> (records: [RunRecord], issues: [String]) {
-        guard FileManager.default.fileExists(atPath: directory.path) else { return ([], []) }
+    /// `newer` holds lines a newer Lifelog wrote; they are not in `records`.
+    public func read() throws -> (records: [RunRecord], issues: [String], newer: NewerLines) {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return ([], [], NewerLines()) }
         let result = try JSONLines.read(RunRecord.self, in: directory, label: "runs")
-        return (JSONLines.merged(result.lines).map(\.value), result.issues)
+        var newer = NewerLines()
+        newer.lines = result.newer
+        return (JSONLines.merged(result.lines).map(\.value), result.issues, newer)
     }
 
     /// Latest complete run per source, the basis for `last_seen` and health checks.

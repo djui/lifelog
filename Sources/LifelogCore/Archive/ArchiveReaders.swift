@@ -2,25 +2,13 @@ import Foundation
 
 /// The readers `archive` uses on a real Mac. Each turns one source read into archive payloads and its scope.
 public enum ArchiveReaders {
-    /// Reminders and Calendar finish quickly, WhatsApp and Claude Code are local files, AI imports unpack zips,
-    /// and Notes can take minutes, so it goes last.
-    public static let order: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .messenger, .facebook, .notes]
+    /// The order sources are read in (see `ArchiveSource.archiveOrder`).
+    public static var order: [ArchiveSource] { ArchiveSource.archiveOrder }
 
     @MainActor
     public static func live(_ config: Config, cursorFile: URL?, digestCache: URL? = nil) -> [ArchiveReader] {
-        let needsEventKit = config.sources.contains(.reminders) || config.sources.contains(.calendar)
-        let eventKit = needsEventKit ? EventKitExporter() : nil
-        let inbox = AIInbox(url: config.aiInbox, digestCache: digestCache)
-        return order.filter(config.sources.contains).map { source -> ArchiveReader in
-            switch source {
-            case .notes: return NotesArchiveReader()
-            case .reminders: return RemindersArchiveReader(eventKit: eventKit!)
-            case .calendar: return CalendarArchiveReader(eventKit: eventKit!)
-            case .whatsapp: return WhatsAppArchiveReader()
-            case .chatgpt, .claude, .instagram, .messenger, .facebook: return AIExportArchiveReader(source: source, inbox: inbox)
-            case .claudecode: return ClaudeCodeArchiveReader(cursorFile: cursorFile)
-            }
-        }
+        let context = ReaderContext(config: config, cursorFile: cursorFile, digestCache: digestCache)
+        return order.filter(config.sources.contains).map { $0.spec.reader(context) }
     }
 }
 
@@ -174,7 +162,11 @@ struct AIExportArchiveReader: ArchiveReader {
 
     static func read(_ export: AIExport) -> ArchiveRead {
         let payloads = export.chats.flatMap { chat in
-            chat.messages.enumerated().map { position, message in
+            chat.messages.enumerated().map { position, message -> ArchivePayload in
+                if export.source.spec.entries, let id = message.id, let timestamp = message.timestamp {
+                    return .entry(ArchiveEntry(source: export.source, container: chat.id, containerTitle: chat.title, id: id, timestamp: timestamp,
+                                               label: message.role, text: message.text, attachments: message.attachments))
+                }
                 // ChatGPT and Claude give messages ids; the position keeps two identical id-less messages apart.
                 var message = message
                 if message.id == nil { message.id = "#\(position)" }
@@ -182,7 +174,7 @@ struct AIExportArchiveReader: ArchiveReader {
             }
         }
         ExportLog.info("\(export.source.rawValue): importing \(export.zip.lastPathComponent)")
-        let scope = [.instagram, .messenger, .facebook].contains(export.source) ? Scope(containers: []) : Scope()
+        let scope = export.source.spec.addOnly ? Scope(containers: []) : Scope()
         return ArchiveRead(payloads: payloads, scope: scope, complete: export.complete, warnings: export.warnings, digest: export.digest)
     }
 }

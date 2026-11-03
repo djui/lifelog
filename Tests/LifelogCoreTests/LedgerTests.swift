@@ -113,7 +113,9 @@ final class LedgerTests: XCTestCase {
 
         let contents = try ledger.read()
         XCTAssertEqual(contents.events.map(\.key.id), ["n1"])
-        XCTAssertEqual(contents.issues.count, 3)
+        XCTAssertEqual(contents.issues.count, 2)
+        // A source folder this version does not know is a newer Lifelog's, not damage.
+        XCTAssertEqual(contents.newer.sources, ["myspace"])
     }
 
     func testTwoHostsInterleaveInTimestampOrder() throws {
@@ -177,7 +179,7 @@ final class LedgerTests: XCTestCase {
         let ledger = Ledger(root: root, host: "mac1")
         try ledger.append([added(note("n1"), at: now)])
         XCTAssertEqual(try ArchiveIndex.load(ledger, cacheRoot: cache).items.count, 1)
-        let cached = try FileManager.default.subpathsOfDirectory(atPath: cache.path).filter { $0.hasSuffix("index.json") }
+        let cached = try FileManager.default.subpathsOfDirectory(atPath: cache.path).filter { $0.hasSuffix("index.sqlite") }
         XCTAssertEqual(cached.count, 1)
         XCTAssertEqual(try FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent(".archive").path).sorted(),
                        ["ledger", "ledger/notes", "ledger/notes/\(JSONLines.month(now)).mac1.jsonl"])
@@ -276,6 +278,20 @@ final class ConfigTests: XCTestCase {
     func testHelpListsCommands() {
         for word in ["export --output", "archive --output", "rebuild --output", "verify --output", "--backfill-since", "--rescan-days", "--full-sweep-days", "--notify"] {
             XCTAssertTrue(Config.help.contains(word), word)
+        }
+    }
+
+    /// The fast parser must give exactly the formatter's dates, or a page rendered from a fresh fold would differ.
+    func testFastTimestampsMatchTheFormatter() {
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<20_000 {
+            let date = Date(timeIntervalSince1970: Double(Int64.random(in: -2_000_000_000_000...4_000_000_000_000, using: &generator)) / 1000)
+            let text = JSONLines.timestamp.string(from: date)
+            XCTAssertEqual(JSONLines.fastTimestamp(text), JSONLines.timestamp.date(from: text), text)
+            XCTAssertEqual(JSONLines.fastTimestamp(text).map(JSONLines.timestamp.string), text)
+        }
+        for text in ["2026-11-04T10:00:00Z", "2026-11-04T10:00:00.000+01:00", "2026-13-04T10:00:00.000Z", "2026-11-04 10:00:00.000Z"] {
+            XCTAssertNil(JSONLines.fastTimestamp(text), text)
         }
     }
 }

@@ -86,6 +86,8 @@ public struct ArchiveSummary {
     public var pages = ExportSummary()
     /// Set when the pages could not be written. The ledger is already up to date; `rebuild` retries the pages.
     public var pageError: String?
+    /// Set when `_archive.sqlite` could not be written. The pages are fine; the next run tries again.
+    public var databaseError: String?
 
     public init() {}
 
@@ -139,7 +141,11 @@ public final class Archiver {
 
     /// `demo` marks the archive as synthetic: a real run refuses a demo archive and a demo refuses a real one.
     public func run(_ readers: [ArchiveReader], now: Date, demo: Bool = false) async throws -> ArchiveSummary {
-        var records = try runLog.read().records
+        let log = try runLog.read()
+        var records = log.records
+        // Pages need the whole ledger and run log, so lines from a newer Lifelog stop them (see `Versioned`).
+        var newer = index.newer
+        newer.merge(log.newer)
         if demo, records.contains(where: { $0.mode != ReadMode.demo.rawValue }) || (records.isEmpty && !index.items.isEmpty) {
             throw ExportError.message("The demo needs an empty archive folder; this one holds a real archive.")
         }
@@ -163,6 +169,10 @@ public final class Archiver {
             progress(ArchiveProgress(.reading, source))
             var appending = false
             do {
+                // Merging against a fold without the newer lines could re-add or misjudge their items.
+                if index.newer.sources.contains(source.rawValue) {
+                    throw ExportError.message("Not read: the ledger holds \(source.rawValue) lines written by a newer version of Lifelog. Update Lifelog on this Mac.")
+                }
                 for read in try await reader.read(request) {
                     let items = StableKey.items(read.payloads, at: now, archived: { self.index.items[$0] != nil }) { Partition.of($0, fallback: now, timeZone: self.timeZone) }
                     let observation = Observation(source: source, runID: runID, at: now, complete: read.complete, scope: read.scope, items: items)
@@ -204,17 +214,41 @@ public final class Archiver {
         if cacheValid { index.save(ledger, cacheRoot: cacheRoot) }
         progress(ArchiveProgress(.pages))
         // Only pages showing an item this run touched are rendered; the rest stay as they are.
-        let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health(records, now))
-        do { summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: before, touched: touched,
-                                                       viewer: viewer ? Viewer(ledger: ledger) : nil) }
-        catch { summary.pageError = error.localizedDescription }
+        // A run whose pages were not written leaves a mark, so the next run writes every page instead.
+        let pending = cacheRoot.map { ArchiveIndex.cacheDirectory(for: ledger, in: $0).appendingPathComponent(Self.pagesPendingName) }
+        let fullWrite = pending.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        if let message = newer.message {
+            summary.pageError = message
+        } else {
+            let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health(records, now))
+            do {
+                summary.pages = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), before: fullWrite ? nil : before,
+                                                       touched: fullWrite ? nil : touched, viewer: viewer ? Viewer(ledger: ledger) : nil)
+                if demo || (!touched.isEmpty || fullWrite) && ArchiveDatabase.due(ledger.root, now: Date()) {
+                    do { try ArchiveDatabase.write(context, to: ledger.root) } catch { summary.databaseError = error.localizedDescription }
+                }
+            } catch { summary.pageError = error.localizedDescription }
+        }
+        if let pending {
+            if summary.pageError == nil { try? FileManager.default.removeItem(at: pending) }
+            else if !fullWrite {
+                do {
+                    try FileManager.default.createDirectory(at: pending.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Data().write(to: pending)
+                } catch { ExportLog.info("could not mark the pages as pending: \(error.localizedDescription)") }
+            }
+        }
         return summary
     }
 
-    /// Zips to skip: every imported one, except that a Facebook zip imported for Messenger is still new to Facebook, and the other way round.
+    /// In the per-archive cache folder: the last run did not write its pages.
+    static let pagesPendingName = "pages-pending"
+
+    /// Zips to skip: every imported one, except that a zip imported for another source of the same export family
+    /// (Messenger and Facebook) is still new to this one.
     static func importedDigests(_ records: [RunRecord], for source: ArchiveSource) -> Set<String> {
-        let shared: Set<ArchiveSource> = [.messenger, .facebook]
-        return Set(records.filter { $0.source == source || !shared.contains(source) || !shared.contains($0.source) }.compactMap(\.digest))
+        let family = source.spec.exportFamily
+        return Set(records.filter { $0.source == source || family == nil || $0.source.spec.exportFamily != family }.compactMap(\.digest))
     }
 
     func request(_ mode: ReadMode, now: Date, source: ArchiveSource, imported: Set<String>) -> ArchiveReadRequest {
@@ -240,9 +274,14 @@ public final class Archiver {
     /// Regenerates every page from the ledger. Pages that are no longer produced are removed; unchanged ones are not rewritten.
     public static func rebuild(_ ledger: Ledger, runLog: RunLog, index: ArchiveIndex, now: Date, timeZone: TimeZone = .current, health: [String] = [],
                                viewer: Bool = true) throws -> ExportSummary {
-        let records = try runLog.read().records
+        try index.newer.require()
+        let log = try runLog.read()
+        try log.newer.require()
+        let records = log.records
         let demo = records.contains { $0.mode == ReadMode.demo.rawValue }
         let context = ViewContext(index: index, records: records, now: now, timeZone: timeZone, demo: demo, health: health)
-        return try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), viewer: viewer ? Viewer(ledger: ledger) : nil)
+        let summary = try ArchivePages.write(context, to: ExportStore(output: ledger.root, layout: .archive), viewer: viewer ? Viewer(ledger: ledger) : nil)
+        try ArchiveDatabase.write(context, to: ledger.root)
+        return summary
     }
 }
