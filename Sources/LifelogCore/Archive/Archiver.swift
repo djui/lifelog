@@ -239,10 +239,11 @@ public final class Archiver {
     /// In the per-archive cache folder: the last run did not write its pages.
     static let pagesPendingName = "pages-pending"
 
-    /// Zips to skip: every imported one, except that a Facebook zip imported for Messenger is still new to Facebook, and the other way round.
+    /// Zips to skip: every imported one, except that a zip imported for another source of the same export family
+    /// (Messenger and Facebook) is still new to this one.
     static func importedDigests(_ records: [RunRecord], for source: ArchiveSource) -> Set<String> {
-        let shared: Set<ArchiveSource> = [.messenger, .facebook]
-        return Set(records.filter { $0.source == source || !shared.contains(source) || !shared.contains($0.source) }.compactMap(\.digest))
+        let family = source.spec.exportFamily
+        return Set(records.filter { $0.source == source || family == nil || $0.source.spec.exportFamily != family }.compactMap(\.digest))
     }
 
     func request(_ mode: ReadMode, now: Date, source: ArchiveSource, imported: Set<String>) -> ArchiveReadRequest {

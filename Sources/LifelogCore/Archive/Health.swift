@@ -110,7 +110,7 @@ public enum Health {
         }
 
         let archiveStart = records.map(\.start).min()
-        for source in [ArchiveSource.chatgpt, .claude, .instagram, .messenger, .facebook] where watched.contains(source) {
+        for source in ArchiveSource.archiveOrder where source.spec.imported && watched.contains(source) {
             let lastImport = records.filter { $0.source == source && $0.digest != nil }.map(\.end).max()
             guard let since = lastImport ?? archiveStart, now.timeIntervalSince(since) >= staleImport else { continue }
             let days = Int(now.timeIntervalSince(since) / 86_400)

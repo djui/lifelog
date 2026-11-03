@@ -222,4 +222,31 @@ extension ArchiverTests {
         XCTAssertTrue(third.lines.isEmpty)
         XCTAssertTrue(try archiver(root).index.items.values.allSatisfy { $0.state == .active })
     }
+
+    /// Facebook entries used to be archived as chat messages. They keep their keys and hashes as entries, so the next
+    /// import rewrites each once as an entry without marking it edited, and the pages read the same.
+    func testFacebookMovesFromMessagesToEntries() async throws {
+        let root = try temporaryDirectory()
+        let inbox = try temporaryDirectory()
+        try InstagramFixture.zip(FacebookFixture.files, named: "facebook.zip", in: inbox)
+        let export = try XCTUnwrap(AIInbox(url: inbox).exports(skipping: []).records.first { $0.source == .facebook })
+        // What Lifelog 0.3 wrote for the same export.
+        let legacy = export.chats.flatMap { chat in
+            chat.messages.map { ArchivePayload.aiMessage(AIArchiveMessage(source: .facebook, chatID: chat.id, chatTitle: chat.title, message: $0)) }
+        }
+        let reader = FakeReader(.facebook, fixedMode: .import) { _ in [ArchiveRead(payloads: legacy, scope: Scope(containers: []))] }
+        _ = try await archiver(root).run([reader], now: t0)
+        let before = try archiver(root).index.items
+        let page = try XCTUnwrap(FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent("Facebook").path).first { $0.hasSuffix(".md") })
+        let pageBefore = try String(contentsOf: root.appendingPathComponent("Facebook/\(page)"), encoding: .utf8)
+
+        let summary = try await archiver(root).run([AIExportArchiveReader(source: .facebook, inbox: AIInbox(url: inbox))], now: t0 + day)
+        XCTAssertEqual(summary.added, 0)
+        XCTAssertEqual(summary.changed, before.count)
+        let after = try archiver(root).index.items
+        XCTAssertEqual(Set(after.keys), Set(before.keys))
+        XCTAssertTrue(after.values.allSatisfy { if case .entry = $0.payload { return !$0.flags.edited } else { return false } })
+        XCTAssertEqual(after.mapValues(\.contentHash), before.mapValues(\.contentHash))
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("Facebook/\(page)"), encoding: .utf8), pageBefore)
+    }
 }

@@ -108,7 +108,7 @@ public enum ArchivePages {
         case .event: return CalendarView.home(item)
         case .reminder: return RemindersView.home(item, context)
         case .note(let note): return NotesView.home(note)
-        case .aiMessage: return AIChatView.home(item, context)
+        case .aiMessage, .entry: return AIChatView.home(item, context)
         }
     }
 
@@ -147,7 +147,7 @@ public enum ArchivePages {
             for item in ArchiveSource.allCases.flatMap({ context.items($0) }) {
                 switch item.payload {
                 case .message(let value) where chats.contains(value.chatJID): keys.insert(item.key)
-                case .aiMessage(let value) where chats.contains("\(item.key.source.rawValue)/\(value.chatID)"): keys.insert(item.key)
+                case .aiMessage, .entry: if let line = item.payload.thread, chats.contains("\(item.key.source.rawValue)/\(line.chatID)") { keys.insert(item.key) }
                 default: break
                 }
             }

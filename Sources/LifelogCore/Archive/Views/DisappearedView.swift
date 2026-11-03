@@ -40,7 +40,7 @@ enum DisappearedView {
         case .event: return CalendarView.summary(item)
         case .reminder: return RemindersView.summary(item)
         case .note: return NotesView.summary(item)
-        case .aiMessage: return AIChatView.summary(item)
+        case .aiMessage, .entry: return AIChatView.summary(item)
         }
     }
 }

@@ -21,6 +21,7 @@ extension Partition {
             return Partition(event.start, timeZone: event.timeZone.flatMap(TimeZone.init(identifier:)) ?? timeZone)
         case .message(let value): return Partition(value.message.timestamp, timeZone: timeZone)
         case .aiMessage(let value): return Partition(value.message.timestamp ?? fallback, timeZone: timeZone)
+        case .entry(let value): return Partition(value.timestamp, timeZone: timeZone)
         }
     }
 

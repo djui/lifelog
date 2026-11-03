@@ -18,6 +18,8 @@ public enum StableKey {
         case .aiMessage(let value):
             // Messages without an id fall back to their content; `items` disambiguates repeats.
             return "\(value.chatID)/\(value.message.id ?? "h:\(contentHash(of: payload).prefix(16))")"
+        // The same form as a message, so a source moved from messages to entries (Facebook) keeps its keys.
+        case .entry(let value): return "\(value.container)/\(value.id)"
         }
     }
 
@@ -28,6 +30,7 @@ public enum StableKey {
         case .event(let event): return event.id
         case .message(let value): return value.message.id
         case .aiMessage(let value): return value.message.id ?? id(of: payload)
+        case .entry(let value): return value.id
         }
     }
 
@@ -39,6 +42,7 @@ public enum StableKey {
         case .event(let event): return event.calendar
         case .message(let value): return value.chatJID
         case .aiMessage(let value): return value.chatID
+        case .entry(let value): return value.container
         }
     }
 
@@ -52,6 +56,8 @@ public enum StableKey {
         case .event(let event): fields = [event.title, event.location, event.notes, event.url, event.isAllDay ? "all-day" : "timed"]
         case .message(let value): fields = [value.message.sender, value.message.text, value.message.placeholder]
         case .aiMessage(let value): fields = [value.message.role, value.message.text] + value.message.attachments
+        // The same fields as a message, so a source moved from messages to entries keeps its hashes and is not marked edited.
+        case .entry(let value): fields = [value.label, value.text] + value.attachments
         }
         return MarkdownWriter.digest(Data(fields.map { normalize($0 ?? "") }.joined(separator: "\u{1F}").utf8))
     }
@@ -66,7 +72,7 @@ public enum StableKey {
             return [event.calendar, time(event.start), time(event.end), event.startDate ?? "", event.endDate ?? "", event.timeZone ?? "", event.status ?? "", event.participation ?? ""]
         case .message(let value): return [String(value.message.isRevoked ?? false)]
         // Titles change as a chat goes on; that is not a change of each message.
-        case .aiMessage: return []
+        case .aiMessage, .entry: return []
         }
     }
 
@@ -106,7 +112,7 @@ public enum StableKey {
         }
         var taken = Set(ids)
         for index in ids.indices {
-            guard case .aiMessage = payloads[index], !archived(ItemKey(source: payloads[index].source, id: ids[index])) else { continue }
+            guard payloads[index].thread != nil, !archived(ItemKey(source: payloads[index].source, id: ids[index])) else { continue }
             let earlier = "\(ids[index])#\(nativeID(of: payloads[index]))"
             if !taken.contains(earlier), archived(ItemKey(source: payloads[index].source, id: earlier)) { ids[index] = earlier; taken.insert(earlier) }
         }

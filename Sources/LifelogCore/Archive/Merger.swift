@@ -111,7 +111,8 @@ public enum Merger {
             var next = keepLastText(item, old)
             next.flags = old.flags
             let textChanged = next.contentHash != old.contentHash
-            if textChanged || StableKey.facets(of: next.payload) != StableKey.facets(of: old.payload) {
+            // A new payload kind for the same text, such as Facebook moving from messages to entries, is rewritten once, not marked edited.
+            if textChanged || StableKey.facets(of: next.payload) != StableKey.facets(of: old.payload) || next.payload.kind != old.payload.kind {
                 if textChanged { next.flags.edited = true }
                 if case .event(let was) = old.payload, case .event(let now) = next.payload {
                     if was.start != now.start || was.end != now.end { next.flags.rescheduledFrom = JSONLines.timestamp.string(from: was.start) }

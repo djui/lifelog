@@ -162,10 +162,11 @@ enum ViewerData {
             value.time = note.modified.map(item.partition.clock)
             value.title = note.title
             value.text = NotesHTML.markdown(from: note.bodyHTML)
-        case .aiMessage(let message):
-            value.time = message.message.timestamp.map(item.partition.clock)
-            value.who = message.message.role
-            value.text = join([message.message.text] + message.message.attachments)
+        case .aiMessage, .entry:
+            let line = item.payload.thread!
+            value.time = line.timestamp.map(item.partition.clock)
+            value.who = line.heading
+            value.text = join([line.text] + line.attachments)
         }
         return value
     }
@@ -177,7 +178,9 @@ enum ViewerData {
         case .event(let value): return value.calendar
         case .reminder(let value): return value.list
         case .note(let value): return "\(value.account) / \(value.folder)"
-        case .aiMessage(let value): return context.aiChatTitles["\(item.key.source.rawValue)/\(value.chatID)"] ?? value.chatTitle
+        case .aiMessage, .entry:
+            let line = item.payload.thread!
+            return context.aiChatTitles["\(item.key.source.rawValue)/\(line.chatID)"] ?? line.chatTitle
         }
     }
 

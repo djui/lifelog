@@ -54,7 +54,7 @@ extension ArchivedItem {
         case .event(let event): return event.start
         case .message(let value): return value.message.timestamp
         // An AI export is a complete read of the service; Claude Code reads only add.
-        case .aiMessage: return nil
+        case .aiMessage, .entry: return nil
         }
     }
 }
