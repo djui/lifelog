@@ -101,23 +101,22 @@ public enum Verifier {
         }
     }
 
-    /// The cache is trusted while the ledger files match its stamps, so it must then equal a fresh fold.
+    /// The cache is trusted while it has read every ledger file to its end, so it must then equal a fresh fold.
     static func checkCache(_ ledger: Ledger, index: ArchiveIndex, cacheRoot: URL, report: inout VerifyReport) {
-        let url = ArchiveIndex.cacheFile(for: ledger, in: cacheRoot)
-        guard let data = try? Data(contentsOf: url) else { return }
-        guard let cache = try? JSONLines.decoder.decode(ArchiveIndex.Cache.self, from: data), cache.version == ArchiveIndex.Cache.currentVersion else {
-            report.notes.append("The index cache \(url.path) is unreadable or outdated; the next run refolds the ledger.")
+        let store = IndexStore(ledger: ledger, cacheRoot: cacheRoot)
+        guard FileManager.default.fileExists(atPath: store.url.path) else { return }
+        guard let snapshot = store.snapshot() else {
+            report.notes.append("The index cache \(store.url.path) is unreadable or outdated; the next run folds the ledger again.")
             return
         }
-        guard cache.archive == ledger.root.path, cache.files == ledger.stamps() else {
-            report.notes.append("The index cache is older than the ledger; the next run refolds it.")
+        guard snapshot.upToDate else {
+            report.notes.append("The index cache is older than the ledger; the next run catches up.")
             return
         }
-        let cached = Dictionary(cache.items.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        let differing = Set(cached.keys).union(index.items.keys).filter { cached[$0] != index.items[$0] }.sorted()
-        if cache.items.count != cached.count || !differing.isEmpty {
+        let differing = Set(snapshot.items.keys).union(index.items.keys).filter { snapshot.items[$0] != index.items[$0] }.sorted()
+        if !differing.isEmpty {
             let examples = differing.prefix(3).map { "\($0.source.rawValue)/\($0.id)" }.joined(separator: ", ")
-            report.problems.append("The index cache disagrees with the ledger for \(differing.count) item(s) (\(examples)). Delete \(url.path) so the next run refolds.")
+            report.problems.append("The index cache disagrees with the ledger for \(differing.count) item(s) (\(examples)). Delete \(store.url.path) so the next run folds again.")
         }
     }
 }

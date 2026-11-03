@@ -231,23 +231,35 @@ enum JSONLines {
             let file = "\(label)/\(name)"
             let data = try Data(contentsOf: folder.appendingPathComponent(name))
             guard data.isEmpty || data.contains(0x0A) else { throw incomplete(file) }
-            let rows = data.split(separator: 0x0A, omittingEmptySubsequences: false)
-            for (index, row) in rows.enumerated() where !row.isEmpty {
-                guard index < rows.count - 1 else { issues.append("\(file): ignored torn last line"); continue }
-                let location = "\(file):\(index + 1)"
-                let data = Data(row)
-                // Probing only lines that fail to decode keeps the common path at one decode per line.
-                if let value = try? decoder.decode(Value.self, from: data) {
-                    if value.v > Value.currentVersion { newer.append("\(location): format \(value.v)"); continue }
-                    lines.append(Line(value: value, at: value.at, host: host, file: file, index: index, location: location))
-                } else if let reason = Value.newer(data) {
-                    newer.append("\(location): \(reason)")
-                } else {
-                    issues.append("\(location): unreadable line, ignored")
-                }
-            }
+            let read = parse(data, file: file, host: host, firstLine: 0, lines: &lines, issues: &issues, newer: &newer)
+            if read.bytes < data.count { issues.append("\(file): ignored torn last line") }
         }
         return (lines, issues, newer)
+    }
+
+    /// The complete lines of `data`, a file's bytes from the start of line `firstLine` (0-based). Returns the bytes and
+    /// lines up to the last newline; anything after it is torn, or still being written, and is left for a later read.
+    @discardableResult
+    static func parse<Value: Decodable & Timestamped & Versioned>(_ data: Data, file: String, host: String, firstLine: Int,
+                                                                   lines: inout [Line<Value>], issues: inout [String], newer: inout [String]) -> (bytes: Int, count: Int) {
+        guard let last = data.lastIndex(of: 0x0A) else { return (0, 0) }
+        let complete = data[data.startIndex...last]
+        let rows = complete.split(separator: 0x0A, omittingEmptySubsequences: false).dropLast()
+        for (offset, row) in rows.enumerated() where !row.isEmpty {
+            let index = firstLine + offset
+            let location = "\(file):\(index + 1)"
+            let data = Data(row)
+            // Probing only lines that fail to decode keeps the common path at one decode per line.
+            if let value = try? decoder.decode(Value.self, from: data) {
+                if value.v > Value.currentVersion { newer.append("\(location): format \(value.v)"); continue }
+                lines.append(Line(value: value, at: value.at, host: host, file: file, index: index, location: location))
+            } else if let reason = Value.newer(data) {
+                newer.append("\(location): \(reason)")
+            } else {
+                issues.append("\(location): unreadable line, ignored")
+            }
+        }
+        return (last - data.startIndex + 1, rows.count)
     }
 
     /// Timestamp order; ties keep host, then file and line order, so every Mac folds the same sequence.

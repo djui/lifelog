@@ -179,7 +179,7 @@ final class LedgerTests: XCTestCase {
         let ledger = Ledger(root: root, host: "mac1")
         try ledger.append([added(note("n1"), at: now)])
         XCTAssertEqual(try ArchiveIndex.load(ledger, cacheRoot: cache).items.count, 1)
-        let cached = try FileManager.default.subpathsOfDirectory(atPath: cache.path).filter { $0.hasSuffix("index.json") }
+        let cached = try FileManager.default.subpathsOfDirectory(atPath: cache.path).filter { $0.hasSuffix("index.sqlite") }
         XCTAssertEqual(cached.count, 1)
         XCTAssertEqual(try FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent(".archive").path).sorted(),
                        ["ledger", "ledger/notes", "ledger/notes/\(JSONLines.month(now)).mac1.jsonl"])
