@@ -105,6 +105,25 @@
     return parts;
   }
 
+  /// Text split into plain runs and Markdown links `[label](https://…)`, as {text} or {text, url}.
+  /// Only http(s) links become links; anything else stays text.
+  function segments(text) {
+    const list = [], pattern = /\[((?:\\.|[^\]\\])*)\]\((https?:\/\/[^\s)]+)\)/g;
+    let at = 0, match;
+    while ((match = pattern.exec(text || ''))) {
+      if (match.index > at) list.push({ text: text.slice(at, match.index) });
+      list.push({ text: match[1].replace(/\\(.)/g, '$1'), url: match[2] });
+      at = pattern.lastIndex;
+    }
+    if (at < (text || '').length) list.push({ text: text.slice(at) });
+    return list;
+  }
+
+  /// Text with its Markdown links as links, highlighted.
+  function linked(list, terms) {
+    return list.map(s => s.url ? h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, highlight(s.text, terms)) : highlight(s.text, terms));
+  }
+
   function badges(item) {
     const list = [];
     if (item.state !== 'active') list.push(h('span', { class: 'badge state-' + item.state }, item.state));
@@ -121,13 +140,20 @@
       item.group ? h('span', { class: 'group' }, highlight(item.group, terms)) : null,
       item.who ? h('strong', { class: 'who' }, highlight(item.who, terms), ':') : null,
       item.title ? h('span', { class: 'title' }, highlight(item.title, terms)) : null,
-      h('span', { class: 'text' }, highlight(short(item.text, item.title ? 160 : 400), terms)),
+      h('span', { class: 'text' }, linked(short(item.text, item.title ? 160 : 400), terms)),
       badges(item));
   }
 
+  /// One line of at most `limit` visible characters, counting a link by its label, so a long URL never cuts the text.
   function short(text, limit) {
-    const flat = (text || '').replace(/\s+/g, ' ').trim();
-    return flat.length <= limit ? flat : flat.slice(0, limit - 1) + '…';
+    const list = segments((text || '').replace(/\s+/g, ' ').trim()), out = [];
+    let left = limit;
+    for (const s of list) {
+      if (s.text.length < left || (s.text.length === left && s === list[list.length - 1])) { out.push(s); left -= s.text.length; continue; }
+      out.push({ ...s, text: s.text.slice(0, Math.max(0, left - 1)) + '…' });
+      break;
+    }
+    return out;
   }
 
   function select(name, label, values, current, labels) {
@@ -219,7 +245,7 @@
     const results = h('div', { class: 'results' });
     main().replaceChildren(h('h1', {}, 'Search'), form, progress, results);
     const terms = fold(q).split(/\s+/).filter(Boolean);
-    if (!terms.length && !group && !person && !state) { progress.textContent = 'Type a word or pick a filter. Months are loaded newest first.'; return; }
+    if (!terms.length && !source && !group && !person && !state) { progress.textContent = 'Type a word or pick a filter. Months are loaded newest first.'; return; }
     const list = allChunks().filter(c => (!source || c.source === source)
       && (!from || c.month >= from.slice(0, 7)) && (!to || c.month <= to.slice(0, 7)));
     const limit = 1000;
@@ -352,7 +378,7 @@
         fact('When', item.day + (item.time ? ' ' + item.time : '')),
         fact('From', item.who), fact('In', item.group), fact('State', item.state),
         fact('Last seen', item.seen), fact('Noticed', item.noticed), fact('Reason', item.reason)),
-      h('pre', { class: 'body' }, item.text),
+      h('pre', { class: 'body' }, linked(segments(item.text), [])),
       h('h2', {}, 'History'),
       item.history.length ? h('table', { class: 'list' }, h('tbody', {}, item.history.map(e => h('tr', {},
         h('td', {}, e.at), h('td', {}, h('span', { class: 'badge state-' + e.what }, e.what)), h('td', {}, e.detail || ''))))) : h('p', { class: 'muted' }, 'No ledger events.'),
