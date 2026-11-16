@@ -149,7 +149,7 @@ public struct AIChatRecord: Codable, Equatable {
 public enum ExportSource: String, Codable, CaseIterable {
     case notes, reminders, calendar, whatsapp
     /// Archive-only: `export` neither accepts nor reads these.
-    case chatgpt, claude, claudecode, instagram, messenger, facebook
+    case chatgpt, claude, claudecode, instagram, messenger, facebook, backlog
 
     /// The sources `export` mirrors.
     public static let exportable: [ExportSource] = [.notes, .reminders, .calendar, .whatsapp]
@@ -166,6 +166,7 @@ public enum ExportSource: String, Codable, CaseIterable {
         case .instagram: return "Instagram"
         case .messenger: return "Messenger"
         case .facebook: return "Facebook"
+        case .backlog: return "BackLog"
         }
     }
 

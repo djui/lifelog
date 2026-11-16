@@ -36,9 +36,9 @@ final class ReaderContext {
 }
 
 extension ArchiveSource {
-    /// Reminders and Calendar finish quickly, WhatsApp and Claude Code are local files, imports unpack zips,
+    /// Reminders and Calendar finish quickly, WhatsApp and Claude Code are local files, imports unpack zips, BackLog is one small database,
     /// and Notes can take minutes, so it goes last.
-    public static let archiveOrder: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .messenger, .facebook, .notes]
+    public static let archiveOrder: [ArchiveSource] = [.reminders, .calendar, .whatsapp, .claudecode, .chatgpt, .claude, .instagram, .messenger, .facebook, .backlog, .notes]
 
     public var spec: SourceSpec {
         switch self {
@@ -53,6 +53,7 @@ extension ArchiveSource {
             return SourceSpec(lane: .hourly, view: .chats, imported: true, addOnly: true, exportFamily: "facebook") { AIExportArchiveReader(source: self, inbox: $0.inbox) }
         case .facebook:
             return SourceSpec(lane: .hourly, view: .chats, imported: true, addOnly: true, exportFamily: "facebook", entries: true) { AIExportArchiveReader(source: self, inbox: $0.inbox) }
+        case .backlog: return SourceSpec(lane: .hourly, view: .chats, entries: true) { _ in BackLogArchiveReader() }
         }
     }
 }

@@ -133,7 +133,7 @@ public struct Config {
       --demo                              Export synthetic examples; no local app access
 
     Archive options:
-      --sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode,instagram,messenger,facebook
+      --sources notes,reminders,calendar,whatsapp,chatgpt,claude,claudecode,instagram,messenger,facebook,backlog
                                           Sources to archive (default: notes,reminders,calendar,whatsapp)
       --backfill-since YYYY-MM-DD         First run reads history back to this date (default: 2000-01-01)
       --rescan-days N                     Recent history re-read on every run (default: 100)
@@ -158,7 +158,7 @@ public struct Config {
     Archive layout: _index.md, Timeline/ and _Disappeared/ by month, WhatsApp/<chat>/,
     Calendar/ and Reminders/ by month, Notes/ by account and folder, ChatGPT/, Claude/,
     ClaudeCode/, Instagram/ and Messenger/ by the month a chat started, Facebook/ by
-    category and month, plus _viewer/index.html, an offline viewer for coverage,
+    category and month, BackLog/ by the month items were finished, plus _viewer/index.html, an offline viewer for coverage,
     disappeared items, search and the timeline. The
     ledger in .archive/ is the source of truth; pages are views of it.
     """

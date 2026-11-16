@@ -251,7 +251,7 @@ struct Lifelog {
             let result = try WhatsAppExporter.fetch(now: now, pastDays: config.pastDays, chatLimit: config.whatsappChats)
             snapshot.chats = result.records
             snapshot.warnings[.whatsapp] = result.warnings
-        case .chatgpt, .claude, .claudecode, .instagram, .messenger, .facebook:
+        case .chatgpt, .claude, .claudecode, .instagram, .messenger, .facebook, .backlog:
             throw ExportError.message("\(source.displayName) is archive-only.")
         }
         return snapshot
